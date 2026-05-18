@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 import { getCachedMarketsApiPayload, type MarketQuerySort, type MarketQueryStatus } from "@/lib/polymarket/markets";
 import { logError } from "@/lib/server/logger";
 
+export const runtime = "nodejs";
+
 const sorts = new Set<MarketQuerySort>(["opportunity", "volume", "liquidity", "movement", "spread"]);
 const statuses = new Set<MarketQueryStatus>(["live", "upcoming", "all", "stale"]);
 

@@ -95,4 +95,25 @@ describe("MarketsExplorer", () => {
       { timeout: 1000 },
     );
   });
+
+  it("keeps existing rows visible while refreshing", async () => {
+    let resolveFetch: (value?: void | PromiseLike<void>) => void = () => undefined;
+    const pending = new Promise<void>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchMock = vi.fn(async () => pending.then(() => new Response(JSON.stringify({ ...initialPage, counts, source: "polymarket" }), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<MarketsExplorer counts={counts} initialPage={initialPage} source="polymarket" />);
+
+    expect(screen.getByText("NBA market 1")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "UFC" }));
+
+    await waitFor(() => expect(screen.getByText("Refreshing")).toBeInTheDocument());
+    expect(screen.getByText("NBA market 1")).toBeInTheDocument();
+    expect(screen.queryByText("Loading markets...")).not.toBeInTheDocument();
+
+    resolveFetch();
+    await pending;
+  });
 });

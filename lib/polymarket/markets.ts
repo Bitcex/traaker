@@ -96,17 +96,34 @@ export type MarketsApiPayload = MarketPage & {
 
 export const DEFAULT_MARKET_PAGE_LIMIT = 100;
 export const MAX_MARKET_PAGE_LIMIT = 500;
-const MARKET_PAGE_CACHE_MS = 60_000;
-const MARKET_COUNTS_CACHE_MS = 300_000;
+const MARKET_SNAPSHOT_CACHE_MS = 300_000;
 
 type CacheEntry<T> = {
   expiresAt: number;
   value: T;
 };
 
-let discoveryCache: CacheEntry<SportsMarketDiscovery> | null = null;
-let countsCache: CacheEntry<MarketDiscoveryCounts> | null = null;
-const marketPageCache = new Map<string, CacheEntry<MarketsApiPayload>>();
+type MarketSnapshot = {
+  discovery: SportsMarketDiscovery;
+  refreshedAt: number;
+  expiresAt: number;
+};
+
+type TraakMarketSnapshotStore = {
+  snapshot: CacheEntry<MarketSnapshot> | null;
+  refreshPromise: Promise<MarketSnapshot> | null;
+};
+
+declare global {
+  var __TRAAK_MARKET_SNAPSHOT__: TraakMarketSnapshotStore | undefined;
+}
+
+function getMarketSnapshotStore() {
+  if (!globalThis.__TRAAK_MARKET_SNAPSHOT__) {
+    globalThis.__TRAAK_MARKET_SNAPSHOT__ = { snapshot: null, refreshPromise: null };
+  }
+  return globalThis.__TRAAK_MARKET_SNAPSHOT__;
+}
 
 function parseArray(value: unknown): unknown[] {
   if (Array.isArray(value)) return value;
@@ -495,6 +512,61 @@ function createMockDiscovery(): SportsMarketDiscovery {
   };
 }
 
+async function buildMarketSnapshot(): Promise<MarketSnapshot> {
+  const discovery = await discoverSportsMarketDiscovery();
+  const now = Date.now();
+  return {
+    discovery,
+    refreshedAt: now,
+    expiresAt: now + MARKET_SNAPSHOT_CACHE_MS,
+  };
+}
+
+function startSnapshotRefresh() {
+  const store = getMarketSnapshotStore();
+  if (store.refreshPromise) return store.refreshPromise;
+
+  store.refreshPromise = buildMarketSnapshot()
+    .then((snapshot) => {
+      store.snapshot = { value: snapshot, expiresAt: snapshot.expiresAt };
+      return snapshot;
+    })
+    .catch((error) => {
+      if (process.env.NODE_ENV !== "production") {
+        console.error("[Traak] market snapshot refresh failed", error);
+      }
+      throw error;
+    })
+    .finally(() => {
+      store.refreshPromise = null;
+    });
+
+  return store.refreshPromise;
+}
+
+async function getMarketSnapshot(allowStale = true) {
+  const store = getMarketSnapshotStore();
+  const now = Date.now();
+  const cached = store.snapshot;
+
+  if (cached && cached.expiresAt > now) {
+    return { snapshot: cached.value, cacheState: "hit" as const };
+  }
+
+  if (cached && allowStale) {
+    void startSnapshotRefresh().catch(() => undefined);
+    return { snapshot: cached.value, cacheState: "stale" as const };
+  }
+
+  if (store.refreshPromise) {
+    const snapshot = await store.refreshPromise;
+    return { snapshot, cacheState: cached ? "stale" as const : "miss" as const };
+  }
+
+  const snapshot = await startSnapshotRefresh();
+  return { snapshot, cacheState: cached ? "stale" as const : "miss" as const };
+}
+
 async function discoverSportsMarketDiscovery(): Promise<SportsMarketDiscovery> {
   try {
     const allEvents: GammaEvent[] = [];
@@ -586,47 +658,51 @@ export async function fetchSportsMarketDiscovery(): Promise<SportsMarketDiscover
   return discoverSportsMarketDiscovery();
 }
 
-function cacheKeyForMarketPage(params: MarketQueryParams) {
-  return JSON.stringify({
-    includeStale: params.includeStale === true,
-    limit: params.limit ?? DEFAULT_MARKET_PAGE_LIMIT,
-    offset: params.offset ?? 0,
-    search: params.search?.trim().toLowerCase() ?? "",
-    sort: params.sort ?? "opportunity",
-    sport: params.sport?.trim().toLowerCase() ?? "all",
-    status: params.status ?? "all",
-  });
-}
-
-async function getCachedDiscoveryForMarketPages() {
-  const now = Date.now();
-  if (discoveryCache && discoveryCache.expiresAt > now) return discoveryCache.value;
-  const discovery = await discoverSportsMarketDiscovery();
-  discoveryCache = { value: discovery, expiresAt: now + MARKET_PAGE_CACHE_MS };
-  countsCache = { value: discovery.counts, expiresAt: now + MARKET_COUNTS_CACHE_MS };
-  return discovery;
-}
-
 export function getCachedMarketCountsSnapshot() {
-  return countsCache && countsCache.expiresAt > Date.now() ? countsCache.value : createEmptyMarketCounts();
+  const store = getMarketSnapshotStore();
+  return store.snapshot?.value.discovery.counts ?? createEmptyMarketCounts();
 }
 
 export async function getCachedMarketsApiPayload(params: MarketQueryParams = {}): Promise<MarketsApiPayload> {
-  const now = Date.now();
-  const key = cacheKeyForMarketPage(params);
-  const cached = marketPageCache.get(key);
-  if (cached && cached.expiresAt > now) return cached.value;
-
-  const discovery = await getCachedDiscoveryForMarketPages();
-  const page = getMarketPage(discovery, params);
-  const counts = countsCache && countsCache.expiresAt > Date.now() ? countsCache.value : discovery.counts;
+  const requestStartedAt = Date.now();
+  const { snapshot, cacheState } = await getMarketSnapshot(true);
+  const filterStartedAt = Date.now();
+  const page = getMarketPage(snapshot.discovery, params);
   const payload: MarketsApiPayload = {
-    counts,
-    source: discovery.source,
+    counts: snapshot.discovery.counts,
+    source: snapshot.discovery.source,
     ...page,
   };
-  marketPageCache.set(key, { value: payload, expiresAt: now + MARKET_PAGE_CACHE_MS });
+  const filterDurationMs = Date.now() - filterStartedAt;
+  const requestDurationMs = Date.now() - requestStartedAt;
+  if (process.env.NODE_ENV !== "production") {
+    console.log("[Traak] markets api request", {
+      cacheState,
+      filterDurationMs,
+      numberReturned: payload.returned,
+      requestDurationMs,
+      totalMarkets: snapshot.discovery.markets.length,
+    });
+  }
   return payload;
+}
+
+export function resetMarketSnapshotCache() {
+  globalThis.__TRAAK_MARKET_SNAPSHOT__ = { snapshot: null, refreshPromise: null };
+}
+
+export function seedMarketSnapshotCache(discovery: SportsMarketDiscovery, expiresAt = Date.now() + MARKET_SNAPSHOT_CACHE_MS) {
+  globalThis.__TRAAK_MARKET_SNAPSHOT__ = {
+    snapshot: {
+      value: {
+        discovery,
+        refreshedAt: Date.now(),
+        expiresAt,
+      },
+      expiresAt,
+    },
+    refreshPromise: null,
+  };
 }
 
 export async function fetchSportsMarkets(): Promise<TerminalMarket[]> {

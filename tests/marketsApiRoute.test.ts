@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import type { SportsMarketDiscovery } from "@/lib/polymarket/markets";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetMarketSnapshotCache, seedMarketSnapshotCache, type SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 function market(index: number, overrides: Partial<TerminalMarket> = {}): TerminalMarket {
@@ -10,7 +10,7 @@ function market(index: number, overrides: Partial<TerminalMarket> = {}): Termina
     title: `NBA market ${index}`,
     sport: "Basketball",
     league: "NBA",
-    status: "upcoming",
+    status: index % 2 === 0 ? "live" : "upcoming",
     startTime: "2026-06-01T00:00:00Z",
     endTime: "2026-06-01T03:00:00Z",
     yesPrice: 0.52,
@@ -43,8 +43,8 @@ const discovery: SportsMarketDiscovery = {
     openSportsMarkets: 3,
     tradableMarkets: 3,
     tradableSportsMarkets: 3,
-    liveSportsMarkets: 0,
-    upcomingSportsMarkets: 3,
+    liveSportsMarkets: 1,
+    upcomingSportsMarkets: 2,
     staleOrUnknownSportsMarkets: 0,
     displayedMarkets: 3,
     excludedClosed: 0,
@@ -56,23 +56,61 @@ const discovery: SportsMarketDiscovery = {
   source: "polymarket",
 };
 
+function makeGammaEventPage(page: number) {
+  if (page > 0) return [];
+  return [
+    {
+      id: "event-1",
+      slug: "nba-event-1",
+      title: "NBA event 1",
+      category: "Sports",
+      closed: false,
+      startDate: "2026-06-01T00:00:00Z",
+      endDate: "2026-06-01T03:00:00Z",
+      markets: [
+        {
+          id: "market-1",
+          conditionId: "condition-1",
+          question: "NBA market 1",
+          slug: "nba-market-1",
+          active: true,
+          acceptingOrders: true,
+          enableOrderBook: true,
+          clobTokenIds: ["yes-1", "no-1"],
+          outcomes: ["YES", "NO"],
+          outcomePrices: [0.55, 0.45],
+          bestAsk: 0.55,
+          volume24h: 100,
+          liquidity: 200,
+          tags: [{ label: "NBA" }],
+          category: "Sports",
+        },
+      ],
+    },
+  ];
+}
+
+async function callMarketsApi(query = "") {
+  const { GET } = await import("@/app/api/polymarket/markets/route");
+  const response = await GET(new Request(`http://localhost/api/polymarket/markets${query}`));
+  return response.json();
+}
+
 describe("/api/polymarket/markets", () => {
-  afterEach(() => {
-    vi.resetModules();
-    vi.restoreAllMocks();
+  beforeEach(() => {
+    resetMarketSnapshotCache();
   });
 
-  it("respects limit and offset", async () => {
-    const marketModule = await import("@/lib/polymarket/markets");
-    vi.spyOn(marketModule, "getCachedMarketsApiPayload").mockImplementation(async (params) => ({
-      counts: discovery.counts,
-      source: discovery.source,
-      ...marketModule.getMarketPage(discovery, params),
-    }));
-    const { GET } = await import("@/app/api/polymarket/markets/route");
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+    resetMarketSnapshotCache();
+  });
 
-    const response = await GET(new Request("http://localhost/api/polymarket/markets?limit=1&offset=1"));
-    const payload = await response.json();
+  it("respects limit and offset from cached snapshot", async () => {
+    seedMarketSnapshotCache(discovery);
+
+    const payload = await callMarketsApi("?limit=1&offset=1");
 
     expect(payload.limit).toBe(1);
     expect(payload.offset).toBe(1);
@@ -81,19 +119,59 @@ describe("/api/polymarket/markets", () => {
     expect(payload.markets[0].id).toBe("market-2");
   });
 
-  it("caps limit at 500", async () => {
-    const marketModule = await import("@/lib/polymarket/markets");
-    vi.spyOn(marketModule, "getCachedMarketsApiPayload").mockImplementation(async (params) => ({
-      counts: discovery.counts,
-      source: discovery.source,
-      ...marketModule.getMarketPage(discovery, params),
-    }));
-    const { GET } = await import("@/app/api/polymarket/markets/route");
+  it("uses the snapshot cache on the second request", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/events?") && url.includes("offset=0")) {
+        return new Response(JSON.stringify(makeGammaEventPage(0)), { status: 200 });
+      }
+      return new Response(JSON.stringify(makeGammaEventPage(1)), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
-    const response = await GET(new Request("http://localhost/api/polymarket/markets?limit=9999"));
-    const payload = await response.json();
+    await callMarketsApi("?limit=1");
+    const fetchesAfterFirst = fetchMock.mock.calls.length;
 
-    expect(payload.limit).toBe(500);
-    expect(payload.returned).toBe(3);
+    await callMarketsApi("?limit=1");
+    expect(fetchMock.mock.calls.length).toBe(fetchesAfterFirst);
+  });
+
+  it("does not refetch Gamma for filter changes when the snapshot exists", async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/events?") && url.includes("offset=0")) {
+        return new Response(JSON.stringify(makeGammaEventPage(0)), { status: 200 });
+      }
+      return new Response(JSON.stringify(makeGammaEventPage(1)), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callMarketsApi("?limit=1");
+    const fetchesAfterFirst = fetchMock.mock.calls.length;
+
+    await callMarketsApi("?limit=1&sport=NBA&status=live&sort=volume");
+    expect(fetchMock.mock.calls.length).toBe(fetchesAfterFirst);
+  });
+
+  it("returns stale cache immediately and refreshes in the background", async () => {
+    seedMarketSnapshotCache(discovery, Date.now() - 10_000);
+
+    let resolveFetch: (value?: void | PromiseLike<void>) => void = () => undefined;
+    const fetchPromise = new Promise<void>((resolve) => {
+      resolveFetch = resolve;
+    });
+    const fetchMock = vi.fn(() => fetchPromise.then(() => new Response(JSON.stringify(makeGammaEventPage(1)), { status: 200 })));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const startedAt = Date.now();
+    const payload = await callMarketsApi("?limit=1");
+    const durationMs = Date.now() - startedAt;
+
+    expect(durationMs).toBeLessThan(250);
+    expect(payload.returned).toBe(1);
+    expect(fetchMock).toHaveBeenCalled();
+
+    resolveFetch();
+    await fetchPromise;
   });
 });

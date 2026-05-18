@@ -55,6 +55,7 @@ export function MarketsExplorer({
   source: SportsMarketDiscovery["source"];
 }) {
   const firstRender = useRef(true);
+  const requestIdRef = useRef(0);
   const [sport, setSport] = useState<(typeof sports)[number]>("All");
   const [status, setStatus] = useState<MarketQueryStatus>("all");
   const [sort, setSort] = useState<MarketQuerySort>("opportunity");
@@ -68,7 +69,7 @@ export function MarketsExplorer({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebouncedQuery(query), 350);
+    const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
     return () => window.clearTimeout(timer);
   }, [query]);
 
@@ -76,6 +77,7 @@ export function MarketsExplorer({
     if (firstRender.current) firstRender.current = false;
 
     const controller = new AbortController();
+    const requestId = ++requestIdRef.current;
     setIsLoading(true);
     fetch(buildMarketsUrl({ offset: 0, search: debouncedQuery, sort, sport, status }), { signal: controller.signal })
       .then(async (response) => {
@@ -83,6 +85,7 @@ export function MarketsExplorer({
         return (await response.json()) as MarketsResponse;
       })
       .then((nextPage) => {
+        if (requestId !== requestIdRef.current) return;
         setMarkets(nextPage.markets);
         setPage(nextPage);
         setLatestCounts(nextPage.counts);
@@ -91,7 +94,9 @@ export function MarketsExplorer({
       .catch((error) => {
         if ((error as Error).name !== "AbortError") console.error(error);
       })
-      .finally(() => setIsLoading(false));
+      .finally(() => {
+        if (requestId === requestIdRef.current) setIsLoading(false);
+      });
 
     return () => controller.abort();
   }, [debouncedQuery, sort, sport, status]);
@@ -114,6 +119,8 @@ export function MarketsExplorer({
   };
 
   const statusOptions: MarketQueryStatus[] = includeDebugFilters ? [...statuses, staleStatus] : [...statuses];
+  const isInitialLoading = isLoading && markets.length === 0;
+  const isRefreshing = isLoading && markets.length > 0;
 
   return (
     <section className="mt-8 space-y-4">
@@ -151,10 +158,13 @@ export function MarketsExplorer({
         <p>
           Showing {markets.length} of {page.total} matching markets. {latestCounts.staleOrUnknownSportsMarkets} stale/unknown excluded from the default view.
         </p>
-        {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock fallback</span> : null}
+        <div className="flex items-center gap-2">
+          {isRefreshing ? <span className="text-xs text-cyan-200">Refreshing</span> : null}
+          {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock fallback</span> : null}
+        </div>
       </div>
 
-      {isLoading ? (
+      {isInitialLoading ? (
         <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-8 text-center text-sm text-slate-400">Loading markets...</div>
       ) : (
         <MarketRows markets={markets} />
