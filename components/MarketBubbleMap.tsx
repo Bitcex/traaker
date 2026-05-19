@@ -75,7 +75,25 @@ const money = (value: number) => {
 const pct = (value: number) => `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`;
 const logoCache = new Map<string, HTMLImageElement>();
 
-export const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, price)) * 100)}\u00a2`;
+function safeNumber(value: number, fallback = 0) {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function safePositiveNumber(value: number, fallback = 0) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+function safeCoordinate(value: number | undefined, fallback = 0) {
+  return Number.isFinite(value) ? (value as number) : fallback;
+}
+
+function safeRadius(value: number, fallback = 1) {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const clamp01 = (value: number) => Math.max(0, Math.min(1, safeNumber(value, 0)));
+
+export const formatCents = (price: number) => `${Math.round(clamp01(price) * 100)}\u00a2`;
 
 const genericOutcomePattern = /^(yes|no|winner|champion|champions?|market|liquid|gaming|team|field|other|others?|draw\/tie)$/i;
 const genericWords = /\b(to win|winner|champions?|championship|market|moneyline|outright|yes|no|will|wins?|advance|qualify|series|game|match|nba|nfl|mlb|nhl|wnba|ncaa|finals?|league|cup|season|playoffs?)\b/gi;
@@ -204,7 +222,10 @@ const createBackgroundParticles = (): BackgroundParticle[] => {
 };
 
 const trendScoreForMarket = (market: TerminalMarket, volume: number) =>
-  Math.abs(market.priceMove24h) * 125 + Math.max(0, market.volumeAcceleration) * 2 + market.recentTradesCount / 8 + Math.log10(volume + 1);
+  Math.abs(safeNumber(market.priceMove24h)) * 125 +
+  Math.max(0, safeNumber(market.volumeAcceleration)) * 2 +
+  Math.max(0, safeNumber(market.recentTradesCount)) / 8 +
+  Math.log10(safePositiveNumber(volume) + 1);
 
 export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption[] {
   const arrayOutcomes = parseStringArray(market.outcomes);
@@ -212,7 +233,7 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
   const names = arrayOutcomes.length > 0 ? arrayOutcomes : [market.outcomes.yes, market.outcomes.no];
   const prices = rawPrices.length >= names.length ? rawPrices : [market.yesPrice, market.noPrice];
   return names.map((name, index) => {
-    const price = Number.isFinite(prices[index]) ? Math.max(0, Math.min(1, prices[index])) : 0;
+    const price = clamp01(prices[index]);
     return {
       name: cleanOutcomeName(name, market.title),
       price,
@@ -235,18 +256,21 @@ function marketColors(market: TerminalMarket, favoredOutcome: string) {
       logoUrl: teamStyle.logoUrl,
     };
   }
-  if (market.priceMove24h > 0.005) return { primary: "#16C784", secondary: "#7CFFB2" };
-  if (market.priceMove24h < -0.005) return { primary: "#EA3943", secondary: "#FF7A84" };
+  const priceMove = safeNumber(market.priceMove24h);
+  if (priceMove > 0.005) return { primary: "#16C784", secondary: "#7CFFB2" };
+  if (priceMove < -0.005) return { primary: "#EA3943", secondary: "#FF7A84" };
   return { primary: "#3A3F47", secondary: "#9AA4B2" };
 }
 
 export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBubbleNode {
-  const volume = Number.isFinite(market.volume) ? market.volume : market.volume24h;
-  const sizeBasis = Math.max(volume, market.liquidity);
+  const volume = safePositiveNumber(market.volume, safePositiveNumber(market.volume24h));
+  const liquidity = safePositiveNumber(market.liquidity);
+  const priceChange = safeNumber(market.priceMove24h);
+  const sizeBasis = Math.max(volume, liquidity);
   const favored = getFavoredOutcome(market);
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
-  const val = rankBubbleRadius(marketBubbleRadius(sizeBasis), index);
+  const val = Math.max(8, rankBubbleRadius(marketBubbleRadius(sizeBasis), index));
   const trendScore = trendScoreForMarket(market, volume);
   const position = seededPosition(market.id);
 
@@ -255,20 +279,20 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
     title: market.title,
     sport: market.league || market.sport,
     volume,
-    liquidity: market.liquidity,
-    priceChange: market.priceMove24h,
+    liquidity,
+    priceChange,
     marketUrl: `/markets/${market.id}`,
     tradeUrl: `/trade/${market.id}`,
     logoUrl: style.logoUrl ?? market.image,
     primaryColor: style.primary,
     secondaryColor: style.secondary,
-    glowColor: momentumGlowColor(market.priceMove24h, volume),
+    glowColor: momentumGlowColor(priceChange, volume),
     favoredOutcome: compactOutcomeName(favored.name),
     favoredPrice: favored.price,
     priceCents: favored.priceCents,
     outcomes,
     trendScore,
-    isTrending: trendScore >= 10 || Math.abs(market.priceMove24h) >= 0.05 || market.recentTradesCount >= 40 || market.volumeAcceleration >= 1.5,
+    isTrending: trendScore >= 10 || Math.abs(priceChange) >= 0.05 || safeNumber(market.recentTradesCount) >= 40 || safeNumber(market.volumeAcceleration) >= 1.5,
     driftPhase: (hashString(market.id) % 628) / 100,
     val,
     targetX: position.x,
@@ -298,7 +322,7 @@ function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundPart
     ctx.shadowColor = particle.color;
     ctx.shadowBlur = particle.size * 4;
     ctx.beginPath();
-    ctx.arc(particle.x * width, particle.y * height, particle.size, 0, Math.PI * 2);
+    ctx.arc(safeCoordinate(particle.x * width), safeCoordinate(particle.y * height), safeRadius(particle.size), 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.shadowBlur = 0;
@@ -321,30 +345,33 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 
 function drawLogoMark(node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
   const logo = getLogoImage(node.logoUrl);
-  const logoSize = radius * 0.38;
+  const safeBubbleRadius = safeRadius(radius, 8);
+  const logoSize = safeRadius(safeBubbleRadius * 0.38, 4);
+  const logoX = safeCoordinate(x);
+  const logoY = safeCoordinate(y);
 
   ctx.save();
   ctx.globalAlpha *= opacity;
   if (logo?.complete && logo.naturalWidth > 0) {
     ctx.beginPath();
-    ctx.arc(x, y, logoSize / 2, 0, Math.PI * 2);
+    ctx.arc(logoX, logoY, safeRadius(logoSize / 2), 0, Math.PI * 2);
     ctx.clip();
-    ctx.drawImage(logo, x - logoSize / 2, y - logoSize / 2, logoSize, logoSize);
+    ctx.drawImage(logo, logoX - logoSize / 2, logoY - logoSize / 2, logoSize, logoSize);
   } else {
     const initials = initialsForName(node.favoredOutcome);
     ctx.fillStyle = "rgba(255,255,255,0.08)";
     ctx.strokeStyle = "rgba(255,255,255,0.55)";
-    ctx.lineWidth = Math.max(1.2, radius * 0.02);
+    ctx.lineWidth = Math.max(1.2, safeBubbleRadius * 0.02);
     ctx.beginPath();
-    ctx.arc(x, y, logoSize * 0.42, 0, Math.PI * 2);
+    ctx.arc(logoX, logoY, safeRadius(logoSize * 0.42), 0, Math.PI * 2);
     ctx.fill();
     ctx.stroke();
     if (initials) {
       ctx.fillStyle = "rgba(255,255,255,0.78)";
-      ctx.font = `900 ${Math.max(9, radius * 0.14)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+      ctx.font = `900 ${Math.max(9, safeBubbleRadius * 0.14)}px Inter, ui-sans-serif, system-ui, sans-serif`;
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.fillText(initials, x, y + 0.5, logoSize * 0.7);
+      ctx.fillText(initials, logoX, logoY + 0.5, logoSize * 0.7);
     }
   }
   ctx.restore();
@@ -361,21 +388,22 @@ function drawBubble(
   const easeIntro = 1 - Math.pow(1 - introAlpha, 3);
   const isHovered = node.id === options.hoveredId;
   const hoverBoost = isHovered ? 1.06 : 1;
-  const pulse = node.isTrending ? 1 + Math.sin(now / 900 + node.driftPhase) * 0.025 : 1;
-  const radius = node.val * hoverBoost * pulse;
+  const driftPhase = safeNumber(node.driftPhase);
+  const pulse = node.isTrending ? 1 + Math.sin(now / 900 + driftPhase) * 0.025 : 1;
+  const radius = Math.max(8, safeRadius(safeNumber(node.val, 8) * hoverBoost * pulse, 8));
   const driftStrength = options.isMobile ? 0.25 : 0.55;
-  const x = (node.x ?? 0) + Math.sin(now / 5200 + node.driftPhase) * driftStrength;
-  const y = (node.y ?? 0) + Math.cos(now / 6100 + node.driftPhase * 1.2) * driftStrength;
-  const screenRadius = radius / globalScale;
+  const x = safeCoordinate(node.x) + Math.sin(now / 5200 + driftPhase) * driftStrength;
+  const y = safeCoordinate(node.y) + Math.cos(now / 6100 + driftPhase * 1.2) * driftStrength;
+  const screenRadius = radius / safeRadius(globalScale, 1);
   const canRenderText = screenRadius >= (options.isMobile ? 24 : 18);
   const canRenderPrice = screenRadius >= (options.isMobile ? 28 : 22);
   const canRenderMovement = screenRadius >= (options.isMobile ? 42 : 34);
-  const glowRadius = radius * (isHovered ? 1.2 : node.isTrending ? 1.12 : 1.06);
+  const glowRadius = safeRadius(radius * (isHovered ? 1.2 : node.isTrending ? 1.12 : 1.06), radius);
 
   ctx.save();
   ctx.globalAlpha = easeIntro;
 
-  const glow = ctx.createRadialGradient(x, y, radius * 0.86, x, y, glowRadius);
+  const glow = ctx.createRadialGradient(x, y, safeRadius(radius * 0.86), x, y, glowRadius);
   glow.addColorStop(0, isHovered ? node.glowColor : "rgba(255,255,255,0.02)");
   glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
@@ -383,7 +411,7 @@ function drawBubble(
   ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
   ctx.fill();
 
-  const fill = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.34, radius * 0.12, x, y, radius);
+  const fill = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.34, safeRadius(radius * 0.12), x, y, radius);
   fill.addColorStop(0, `${node.primaryColor}66`);
   fill.addColorStop(0.48, "#18181b");
   fill.addColorStop(1, "#030303");
@@ -395,19 +423,19 @@ function drawBubble(
   ctx.lineWidth = Math.max(3, radius * 0.08);
   ctx.strokeStyle = node.primaryColor;
   ctx.beginPath();
-  ctx.arc(x, y, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
+  ctx.arc(x, y, safeRadius(radius - ctx.lineWidth / 2), 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.lineWidth = Math.max(1, radius * 0.025);
   ctx.strokeStyle = node.secondaryColor;
   ctx.beginPath();
-  ctx.arc(x, y, radius - Math.max(4, radius * 0.1), 0, Math.PI * 2);
+  ctx.arc(x, y, safeRadius(radius - Math.max(4, radius * 0.1)), 0, Math.PI * 2);
   ctx.stroke();
 
   ctx.strokeStyle = "rgba(255,255,255,0.35)";
   ctx.lineWidth = Math.max(1, radius * 0.018);
   ctx.beginPath();
-  ctx.arc(x, y, radius * 0.82, Math.PI * 1.08, Math.PI * 1.85);
+  ctx.arc(x, y, safeRadius(radius * 0.82), Math.PI * 1.08, Math.PI * 1.85);
   ctx.stroke();
 
   ctx.textAlign = "center";
@@ -437,7 +465,7 @@ function drawBubble(
     ctx.lineWidth = Math.max(2, radius * 0.035);
     ctx.strokeStyle = "rgba(255, 255, 255, 0.7)";
     ctx.beginPath();
-    ctx.arc(x, y, radius + 1.5, 0, Math.PI * 2);
+    ctx.arc(x, y, safeRadius(radius + 1.5), 0, Math.PI * 2);
     ctx.stroke();
   }
 
@@ -579,7 +607,7 @@ export function MarketBubbleMap({
           nodePointerAreaPaint={(node, color, ctx) => {
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(node.x ?? 0, node.y ?? 0, node.val + 6, 0, Math.PI * 2);
+            ctx.arc(safeCoordinate(node.x), safeCoordinate(node.y), safeRadius(safeNumber(node.val, 8) + 6), 0, Math.PI * 2);
             ctx.fill();
           }}
           nodeRelSize={1}

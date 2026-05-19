@@ -10,6 +10,8 @@ type MockForceGraphProps = {
   d3VelocityDecay?: number;
   maxZoom?: number;
   minZoom?: number;
+  nodeCanvasObject?: (node: MarketBubbleNode, ctx: CanvasRenderingContext2D, globalScale: number) => void;
+  nodePointerAreaPaint?: (node: MarketBubbleNode, color: string, ctx: CanvasRenderingContext2D) => void;
   onNodeClick: (node: MarketBubbleNode) => void;
   onNodeHover?: (node: MarketBubbleNode | null, previousNode: MarketBubbleNode | null) => void;
 };
@@ -18,6 +20,36 @@ type MockForceGraphHandle = {
   d3Force: ReturnType<typeof vi.fn>;
   d3ReheatSimulation: ReturnType<typeof vi.fn>;
 };
+
+function createStrictCanvasContext() {
+  const gradient = { addColorStop: vi.fn() };
+  return {
+    canvas: { width: 800, height: 600 },
+    globalAlpha: 1,
+    save: vi.fn(),
+    restore: vi.fn(),
+    resetTransform: vi.fn(),
+    fillRect: vi.fn(),
+    beginPath: vi.fn(),
+    fill: vi.fn(),
+    stroke: vi.fn(),
+    clip: vi.fn(),
+    drawImage: vi.fn(),
+    strokeText: vi.fn(),
+    fillText: vi.fn(),
+    createRadialGradient: vi.fn((_: number, __: number, r0: number, ___: number, ____: number, r1: number) => {
+      if (!Number.isFinite(r0) || r0 <= 0 || !Number.isFinite(r1) || r1 <= 0) {
+        throw new Error(`Invalid gradient radius ${r0}, ${r1}`);
+      }
+      return gradient;
+    }),
+    arc: vi.fn((_: number, __: number, radius: number) => {
+      if (!Number.isFinite(radius) || radius <= 0) {
+        throw new Error(`Invalid arc radius ${radius}`);
+      }
+    }),
+  } as unknown as CanvasRenderingContext2D;
+}
 
 vi.mock("next/dynamic", async () => {
   const React = await import("react");
@@ -29,6 +61,18 @@ vi.mock("next/dynamic", async () => {
           d3ReheatSimulation: vi.fn(),
         }));
         const firstNode = props.graphData.nodes[0];
+        if (firstNode?.id === "invalid-node") {
+          const invalidNode = {
+            ...firstNode,
+            driftPhase: Number.NaN,
+            priceChange: Number.NaN,
+            val: -0.5,
+            x: Number.NaN,
+            y: Number.NaN,
+          };
+          props.nodeCanvasObject?.(invalidNode, createStrictCanvasContext(), 0);
+          props.nodePointerAreaPaint?.(invalidNode, "#fff", createStrictCanvasContext());
+        }
         return (
           <div data-testid="force-graph">
             <span data-testid="graph-config">
@@ -123,5 +167,29 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByText("Celtics")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Trade market" })).toHaveAttribute("href", "/trade/market-1");
     expect(screen.getByRole("link", { name: "Open details" })).toHaveAttribute("href", "/markets/market-1");
+  });
+
+  it("renders invalid tiny node values without negative canvas radii", () => {
+    const invalidMarket: TerminalMarket = {
+      ...market,
+      id: "invalid-node",
+      title: "Broken market data",
+      yesPrice: Number.NaN,
+      noPrice: Number.POSITIVE_INFINITY,
+      volume24h: Number.NaN,
+      volume: Number.NaN,
+      liquidity: Number.NEGATIVE_INFINITY,
+      priceMove24h: Number.NaN,
+      volumeAcceleration: Number.NaN,
+      recentTradesCount: Number.NaN,
+      outcomes: { yes: "YES", no: "NO" },
+    };
+    const node = marketToBubbleNode(invalidMarket);
+
+    expect(node.val).toBeGreaterThanOrEqual(8);
+    expect(node.volume).toBe(0);
+    expect(node.liquidity).toBe(0);
+    expect(node.priceChange).toBe(0);
+    expect(() => render(<MarketBubbleMap markets={[invalidMarket]} />)).not.toThrow();
   });
 });
