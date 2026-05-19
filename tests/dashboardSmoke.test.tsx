@@ -93,13 +93,13 @@ describe("DashboardPage", () => {
     vi.unstubAllGlobals();
   });
 
-  it("renders market rows", async () => {
+  it("renders the bubble map", async () => {
     render(await DashboardPage());
     expect(screen.getByPlaceholderText("Search teams, leagues, outcomes")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /trading terminal/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/minimum volume/i, { selector: "p" })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText("NBA test market 0").length).toBeGreaterThan(0));
+    await waitFor(() => expect(screen.getByRole("application", { name: /100 sports market bubble map/i })).toBeInTheDocument());
   });
 
   it("does not render every discovered market on first paint", async () => {

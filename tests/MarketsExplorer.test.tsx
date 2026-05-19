@@ -110,7 +110,7 @@ describe("MarketsExplorer", () => {
     );
   });
 
-  it("keeps existing rows visible while refreshing", async () => {
+  it("keeps existing bubbles visible while refreshing", async () => {
     let resolveFetch: (value?: void | PromiseLike<void>) => void = () => undefined;
     const pending = new Promise<void>((resolve) => {
       resolveFetch = resolve;
@@ -129,12 +129,12 @@ describe("MarketsExplorer", () => {
 
     render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
 
-    expect(screen.getByText("NBA market 1")).toBeInTheDocument();
+    expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "UFC" }));
 
-    await waitFor(() => expect(screen.getByText("Refreshing")).toBeInTheDocument());
-    expect(screen.getByText("NBA market 1")).toBeInTheDocument();
-    expect(screen.queryByText("Loading markets...")).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText("Refreshing").length).toBeGreaterThan(0));
+    expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
+    expect(screen.queryByText("Loading sports bubbles...")).not.toBeInTheDocument();
 
     resolveFetch();
     await pending;
@@ -160,8 +160,8 @@ describe("MarketsExplorer", () => {
 
     render(<MarketsExplorer initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Load more bubbles" })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Load more bubbles" }));
 
     await waitFor(() => {
       const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));

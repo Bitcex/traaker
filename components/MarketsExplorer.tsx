@@ -4,13 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { MarketRows } from "@/components/MarketRows";
+import { MarketBubbleMap } from "@/components/MarketBubbleMap";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
 const statuses = ["all", "live", "upcoming"] as const;
-const staleStatus = "stale" as const;
 const minVolumeOptions = [
   { label: "$2K+", value: 2000 },
   { label: "$5K+", value: 5000 },
@@ -18,11 +17,9 @@ const minVolumeOptions = [
   { label: "$50K+", value: 50000 },
 ] as const;
 const sortOptions: { label: string; value: MarketQuerySort }[] = [
-  { label: "Opportunity", value: "opportunity" },
   { label: "Volume", value: "volume" },
   { label: "Liquidity", value: "liquidity" },
   { label: "Movement", value: "movement" },
-  { label: "Spread", value: "spread" },
 ];
 const PAGE_LIMIT = 100;
 
@@ -64,11 +61,9 @@ function buildMarketsUrl(params: {
 }
 
 export function MarketsExplorer({
-  includeDebugFilters = false,
   initialPage,
   source,
 }: {
-  includeDebugFilters?: boolean;
   initialPage: MarketPage;
   source: SportsMarketDiscovery["source"];
 }) {
@@ -137,14 +132,13 @@ export function MarketsExplorer({
     }
   };
 
-  const statusOptions: MarketQueryStatus[] = includeDebugFilters ? [...statuses, staleStatus] : [...statuses];
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
   const selectedMinVolumeLabel = minVolumeOptions.find((option) => option.value === minVolume)?.label ?? "$2K+";
 
   return (
-    <section className="space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+    <section className="space-y-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/90 p-2">
         <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
           <Input className="h-9 w-[min(100vw-1.5rem,360px)] pl-9" onChange={(event) => setQuery(event.target.value)} placeholder="Search teams, leagues, outcomes" value={query} />
@@ -156,9 +150,9 @@ export function MarketsExplorer({
             </Button>
           ))}
         </div>
-        {statusOptions.map((item) => (
+        {statuses.map((item) => (
           <Button key={item} onClick={() => setStatus(item)} size="sm" type="button" variant={status === item ? "outline" : "ghost"}>
-            {item === "all" ? "Live + upcoming" : item === "stale" ? "Stale/unknown" : item}
+            {item === "all" ? "Live + upcoming" : item}
           </Button>
         ))}
         {sortOptions.map((item) => (
@@ -180,7 +174,7 @@ export function MarketsExplorer({
         </select>
       </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-sm text-slate-400">
         <p>
           Showing {markets.length} sports markets with {selectedMinVolumeLabel} volume.
         </p>
@@ -194,19 +188,13 @@ export function MarketsExplorer({
         <div className="rounded-lg border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</div>
       ) : null}
 
-      {isInitialLoading ? (
-        <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-8 text-center text-sm text-slate-400">Loading markets...</div>
-      ) : (
-        <MarketRows markets={markets} />
-      )}
-
-      {page.hasMore && !isLoading ? (
-        <div className="flex justify-center">
-          <Button disabled={isLoadingMore} onClick={loadMore} type="button" variant="secondary">
-            {isLoadingMore ? "Loading..." : "Load more"}
-          </Button>
-        </div>
-      ) : null}
+      <MarketBubbleMap
+        hasMore={page.hasMore && !isLoading}
+        isLoading={isInitialLoading}
+        isRefreshing={isRefreshing || isLoadingMore}
+        markets={markets}
+        onLoadMore={page.hasMore && !isLoading ? loadMore : undefined}
+      />
     </section>
   );
 }
