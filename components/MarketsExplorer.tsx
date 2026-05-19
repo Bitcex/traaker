@@ -5,15 +5,13 @@ import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MarketRows } from "@/components/MarketRows";
-import type { MarketCountsApiResponse, MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
+import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
 const statuses = ["all", "live", "upcoming"] as const;
 const staleStatus = "stale" as const;
 const minVolumeOptions = [
-  { label: "$0+", value: 0 },
-  { label: "$1K+", value: 1000 },
   { label: "$2K+", value: 2000 },
   { label: "$5K+", value: 5000 },
   { label: "$10K+", value: 10000 },
@@ -33,6 +31,17 @@ type MarketsResponse = MarketPage & {
   countsLoading?: boolean;
   source: SportsMarketDiscovery["source"];
 };
+
+async function readMarketsResponse(response: Response): Promise<MarketsResponse> {
+  const payload = (await response.json().catch(() => null)) as (Partial<MarketsResponse> & { error?: string }) | null;
+  if (!response.ok) {
+    throw new Error(payload?.error ?? "Unable to load Polymarket sports markets.");
+  }
+  if (!payload || !Array.isArray(payload.markets)) {
+    throw new Error("Polymarket returned an unexpected sports market response.");
+  }
+  return payload as MarketsResponse;
+}
 
 function buildMarketsUrl(params: {
   offset: number;
@@ -55,14 +64,10 @@ function buildMarketsUrl(params: {
 }
 
 export function MarketsExplorer({
-  counts,
-  countsLoading = false,
   includeDebugFilters = false,
   initialPage,
   source,
 }: {
-  counts: SportsMarketDiscovery["counts"];
-  countsLoading?: boolean;
   includeDebugFilters?: boolean;
   initialPage: MarketPage;
   source: SportsMarketDiscovery["source"];
@@ -71,17 +76,16 @@ export function MarketsExplorer({
   const requestIdRef = useRef(0);
   const [sport, setSport] = useState<(typeof sports)[number]>("All");
   const [status, setStatus] = useState<MarketQueryStatus>("all");
-  const [sort, setSort] = useState<MarketQuerySort>("opportunity");
+  const [sort, setSort] = useState<MarketQuerySort>("volume");
   const [minVolume, setMinVolume] = useState(2000);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
   const [page, setPage] = useState(initialPage);
-  const [latestCounts, setLatestCounts] = useState(counts);
   const [latestSource, setLatestSource] = useState(source);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [isCountsLoading, setIsCountsLoading] = useState(countsLoading);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebouncedQuery(query), 300);
@@ -89,80 +93,25 @@ export function MarketsExplorer({
   }, [query]);
 
   useEffect(() => {
-    let cancelled = false;
-    let retryTimer: number | undefined;
-    const controller = new AbortController();
-
-    const loadCounts = async () => {
-      try {
-        const response = await fetch(`/api/polymarket/markets/counts?minVolume=${minVolume}`, { signal: controller.signal });
-        if (!response.ok) throw new Error("Unable to load market counts");
-        const payload = (await response.json()) as MarketCountsApiResponse;
-        if (cancelled) return;
-        if (payload.loading) {
-          setIsCountsLoading(true);
-          retryTimer = window.setTimeout(loadCounts, 1000);
-          return;
-        }
-        setLatestCounts(payload.counts);
-        setLatestSource(payload.source);
-        setIsCountsLoading(false);
-      } catch (error) {
-        if ((error as Error).name !== "AbortError") console.error(error);
-      }
-    };
-
-    setIsCountsLoading(countsLoading);
-    void loadCounts();
-
-    return () => {
-      cancelled = true;
-      controller.abort();
-      if (retryTimer) window.clearTimeout(retryTimer);
-    };
-  }, [countsLoading, minVolume]);
-
-  useEffect(() => {
-    const schedule = () => {
-      const prewarmUrl = new URL("/api/polymarket/markets/prewarm", window.location.origin).toString();
-      void fetch(prewarmUrl).catch((error) => console.error(error));
-    };
-
-    const idleWindow = window as Window & {
-      requestIdleCallback?: (callback: IdleRequestCallback, options?: IdleRequestOptions) => number;
-      cancelIdleCallback?: (handle: number) => void;
-    };
-
-    if (idleWindow.requestIdleCallback) {
-      const handle = idleWindow.requestIdleCallback(schedule, { timeout: 2000 });
-      return () => idleWindow.cancelIdleCallback?.(handle);
-    }
-
-    const timer = window.setTimeout(schedule, 1500);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
     if (firstRender.current) firstRender.current = false;
 
     const controller = new AbortController();
     const requestId = ++requestIdRef.current;
     setIsLoading(true);
+    setError(null);
     fetch(buildMarketsUrl({ offset: 0, search: debouncedQuery, sort, sport, status, minVolume }), { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Unable to load markets");
-        return (await response.json()) as MarketsResponse;
-      })
+      .then(readMarketsResponse)
       .then((nextPage) => {
         if (requestId !== requestIdRef.current) return;
         setMarkets(nextPage.markets);
         setPage(nextPage);
-        setLatestCounts(nextPage.counts);
         setLatestSource(nextPage.source);
-        setIsCountsLoading(nextPage.countsLoading ?? false);
       })
       .catch((error) => {
-        if ((error as Error).name !== "AbortError") console.error(error);
+        if ((error as Error).name !== "AbortError") {
+          console.error(error);
+          if (requestId === requestIdRef.current) setError(error instanceof Error ? error.message : "Unable to load Polymarket sports markets.");
+        }
       })
       .finally(() => {
         if (requestId === requestIdRef.current) setIsLoading(false);
@@ -173,17 +122,16 @@ export function MarketsExplorer({
 
   const loadMore = async () => {
     setIsLoadingMore(true);
+    setError(null);
     try {
       const response = await fetch(buildMarketsUrl({ offset: markets.length, search: debouncedQuery, sort, sport, status, minVolume }));
-      if (!response.ok) throw new Error("Unable to load more markets");
-      const nextPage = (await response.json()) as MarketsResponse;
+      const nextPage = await readMarketsResponse(response);
       setMarkets((current) => [...current, ...nextPage.markets]);
       setPage(nextPage);
-      setLatestCounts(nextPage.counts);
       setLatestSource(nextPage.source);
-      setIsCountsLoading(nextPage.countsLoading ?? false);
     } catch (error) {
       console.error(error);
+      setError(error instanceof Error ? error.message : "Unable to load more Polymarket sports markets.");
     } finally {
       setIsLoadingMore(false);
     }
@@ -243,23 +191,17 @@ export function MarketsExplorer({
 
       <div className="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-400">
         <p>
-          {isCountsLoading ? (
-            <>
-              Showing {markets.length} markets with {selectedMinVolumeLabel} volume.
-            </>
-          ) : (
-            <>
-              Showing {markets.length} of {page.total} markets with {selectedMinVolumeLabel} volume.
-            </>
-          )}{" "}
-          {latestCounts.staleExcluded} stale/unknown excluded from the default view.
+          Showing {markets.length} sports markets with {selectedMinVolumeLabel} volume.
         </p>
         <div className="flex items-center gap-2">
-          {isCountsLoading ? <span className="text-xs text-cyan-200">Calculating</span> : null}
           {isRefreshing ? <span className="text-xs text-cyan-200">Refreshing</span> : null}
           {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock fallback</span> : null}
         </div>
       </div>
+
+      {error ? (
+        <div className="rounded-lg border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</div>
+      ) : null}
 
       {isInitialLoading ? (
         <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-8 text-center text-sm text-slate-400">Loading markets...</div>

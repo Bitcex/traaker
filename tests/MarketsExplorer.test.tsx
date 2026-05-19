@@ -85,7 +85,7 @@ describe("MarketsExplorer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<MarketsExplorer counts={counts} countsLoading={false} initialPage={initialPage} source="polymarket" />);
+    render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
 
     fireEvent.click(screen.getByRole("button", { name: "NBA" }));
     fireEvent.click(screen.getByRole("button", { name: "live" }));
@@ -127,7 +127,7 @@ describe("MarketsExplorer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<MarketsExplorer counts={counts} countsLoading={false} initialPage={initialPage} source="polymarket" />);
+    render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
 
     expect(screen.getByText("NBA market 1")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "UFC" }));
@@ -158,7 +158,7 @@ describe("MarketsExplorer", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<MarketsExplorer counts={counts} countsLoading={false} initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
+    render(<MarketsExplorer initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Load more" })).toBeInTheDocument());
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));

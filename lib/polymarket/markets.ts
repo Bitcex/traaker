@@ -7,6 +7,8 @@ import type { MarketChartPoint, MarketStatus, NormalizedOrderbook, RecentTrade, 
 
 const GAMMA_HOST = "https://gamma-api.polymarket.com";
 const GAMMA_PAGE_LIMIT = 200;
+const GAMMA_SPORTS_EVENTS_PAGE_LIMIT = 100;
+const GAMMA_SPORTS_SERIES_ID = "10345";
 
 const sportsTerms = [
   "nba",
@@ -394,17 +396,18 @@ export function getMarketPage(discovery: SportsMarketDiscovery, params: MarketQu
 }
 
 type FastMarketPageResult = MarketsApiPayload & {
-  warmupStarted: boolean;
   pagesFetched: number;
   requestDurationMs: number;
 };
 
-async function fetchGammaEventPage(offset: number) {
+async function fetchGammaSportsEventPage(offset: number, limit = GAMMA_SPORTS_EVENTS_PAGE_LIMIT) {
   const params = new URLSearchParams({
+    series_id: GAMMA_SPORTS_SERIES_ID,
+    active: "true",
     closed: "false",
-    order: "id",
+    order: "volume",
     ascending: "false",
-    limit: String(GAMMA_PAGE_LIMIT),
+    limit: String(limit),
     offset: String(offset),
   });
   const response = await fetch(`${GAMMA_HOST}/events?${params.toString()}`, {
@@ -416,104 +419,165 @@ async function fetchGammaEventPage(offset: number) {
   return (await response.json()) as GammaEvent[];
 }
 
-async function buildFastMarketPagePayload(params: MarketQueryParams = {}): Promise<FastMarketPageResult> {
+function getGammaEventVolume(event: GammaEvent) {
+  return asNumber(pick(event, ["volume", "volumeNum"], 0));
+}
+
+function augmentEventMarket(event: GammaEvent, market: GammaMarket, eventVolume: number): GammaMarket {
+  return {
+    ...market,
+    __eventClosed: event.closed,
+    category: pick(market, ["category", "subcategory"], pick(event, ["category", "subcategory"], "Sports")),
+    tags: market.tags ?? event.tags,
+    events: [
+      {
+        slug: event.slug,
+        tags: event.tags,
+        title: event.title,
+        category: event.category,
+        closed: event.closed,
+        startDate: event.startDate,
+        endDate: event.endDate,
+        startTime: event.startTime,
+        eventDate: event.eventDate,
+        gameStartTime: event.gameStartTime,
+      },
+    ],
+    eventStartTime: pick(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"]),
+    gameStartTime: pick(event, ["gameStartTime", "startTime", "eventStartTime", "eventDate"]),
+    startTime: pick(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"], market.startTime),
+    startDate: pick(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"], market.startDate),
+    endDate: undefined,
+    endDateIso: undefined,
+    gameEndTime: undefined,
+    volume: eventVolume,
+    volumeNum: eventVolume,
+    volume24hr: asNumber(pick(event, ["volume24hr", "volume24h"], pick(market, ["volume24hr", "volume24h"], eventVolume))),
+    liquidity: asNumber(pick(event, ["liquidity", "liquidityNum"], pick(market, ["liquidity", "liquidityNum"], 0))),
+    liquidityNum: asNumber(pick(event, ["liquidity", "liquidityNum"], pick(market, ["liquidity", "liquidityNum"], 0))),
+    image: pick(event, ["image", "icon"], market.image),
+    icon: pick(event, ["icon", "image"], market.icon),
+  };
+}
+
+function marketPreferenceScore(market: GammaMarket) {
+  const type = asString(pick(market, ["sportsMarketType", "groupItemTitle", "question", "slug"], "")).toLowerCase();
+  const volume = asNumber(pick(market, ["volume", "volumeNum"], 0));
+  const typeBonus = type.includes("moneyline") || type.includes("winner") ? 1_000_000_000 : 0;
+  return typeBonus + volume;
+}
+
+function normalizeGammaSportsEvent(event: GammaEvent): TerminalMarket | null {
+  const eventVolume = getGammaEventVolume(event);
+  const eventTitle = asString(pick(event, ["title", "ticker", "slug"], ""), "");
+  const eventSlug = asString(pick(event, ["slug", "ticker"], ""), eventTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-"));
+  const markets = (event.markets ?? []).filter((market): market is GammaMarket => typeof market === "object" && market !== null);
+
+  const candidates = markets
+    .map((market) => ({ market: augmentEventMarket(event, market, eventVolume), score: marketPreferenceScore(market) }))
+    .map(({ market, score }) => ({ market, normalized: normalizeGammaMarket(market), score }))
+    .filter((item): item is { market: GammaMarket; normalized: TerminalMarket; score: number } => item.normalized !== null)
+    .sort((a, b) => b.score - a.score);
+
+  const selected = candidates[0]?.normalized;
+  if (!selected) return null;
+
+  const volume24h = asNumber(pick(event, ["volume24hr", "volume24h"], selected.volume24h), selected.volume24h);
+  const volume1wk = asNumber(pick(event, ["volume1wk", "volume_1wk"], selected.volume1wk), selected.volume1wk);
+  const liquidity = asNumber(pick(event, ["liquidity", "liquidityNum"], selected.liquidity), selected.liquidity);
+  const acceleration = volumeAcceleration(volume24h, volume1wk);
+  const title = eventTitle || selected.title;
+  const haystack = `${title} ${eventSlug} ${JSON.stringify(event.tags ?? [])} ${event.category ?? ""}`.toLowerCase();
+  const sport = inferSport(haystack);
+
+  return {
+    ...selected,
+    title,
+    slug: eventSlug || selected.slug,
+    sport,
+    league: inferLeague(haystack, sport),
+    startTime: (pickFirstDate(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"]) ?? parseDate(selected.startTime))?.toISOString() ?? selected.startTime,
+    endTime: null,
+    status: classifyMarketStatus({ startTime: pick(event, ["startTime", "gameStartTime", "eventStartTime", "eventDate", "startDate"], selected.startTime) }),
+    volume: eventVolume,
+    volume24h,
+    volume1wk,
+    liquidity,
+    volumeAcceleration: acceleration,
+    opportunityScore: opportunityScore({
+      liquidity,
+      volume: volume24h,
+      priceMove24h: selected.priceMove24h,
+      recentTrades: selected.recentTradesCount,
+      spread: selected.spread,
+      volumeAcceleration: acceleration,
+    }),
+    image: asString(pick(event, ["image", "icon"], selected.image), selected.image),
+  };
+}
+
+export async function getLiveSportsMarketsApiPayload(params: MarketQueryParams = {}): Promise<FastMarketPageResult> {
   const requestStartedAt = Date.now();
-  const limit = Math.min(Math.max(Number.isFinite(params.limit) ? Math.trunc(params.limit as number) : DEFAULT_MARKET_PAGE_LIMIT, 1), MAX_MARKET_PAGE_LIMIT);
-  const offset = Math.max(Number.isFinite(params.offset) ? Math.trunc(params.offset as number) : 0, 0);
-  const minVolume = normalizeMinVolume(params.minVolume);
-  const targetCount = offset + limit;
+  const minVolume = Math.max(DEFAULT_MARKET_MIN_VOLUME, normalizeMinVolume(params.minVolume));
+  const collectedEvents: GammaEvent[] = [];
   const collectedMarkets: TerminalMarket[] = [];
   let pagesFetched = 0;
-  let rawMarkets = 0;
-  let eligibleSports = 0;
-  let tradableSports = 0;
   let currentOffset = 0;
-  let stoppedEarly = false;
 
-  while (collectedMarkets.length < targetCount) {
-    const page = await fetchGammaEventPage(currentOffset);
+  while (true) {
+    const page = await fetchGammaSportsEventPage(currentOffset);
     if (!page.length) {
       break;
     }
     pagesFetched += 1;
-    currentOffset += page.length;
 
-    for (const event of page) {
-      const markets = event.markets ?? [];
-      for (const market of markets) {
-        rawMarkets += 1;
-        const rawVolume = asNumber(pick(market, ["volume", "totalVolume", "total_volume", "volumeNum", "volume_num"], 0));
-        if (rawVolume < minVolume) continue;
-        const rawMarket = {
-          ...market,
-          __eventClosed: event.closed,
-          events: market.events ?? [
-            {
-              slug: event.slug,
-              tags: event.tags,
-              title: event.title,
-              category: event.category,
-              closed: event.closed,
-              startDate: event.startDate,
-              endDate: event.endDate,
-              startTime: event.startTime,
-              eventDate: event.eventDate,
-              gameStartTime: event.gameStartTime,
-            },
-          ],
-          tags: market.tags ?? event.tags,
-        };
-        const eligibility = getMarketEligibility(rawMarket);
-        if (!eligibility.isSports) continue;
-        eligibleSports += 1;
-        if (eligibility.excludedReason) continue;
-        const normalized = normalizeGammaMarket(rawMarket);
-        if (!normalized) continue;
-        tradableSports += 1;
-        collectedMarkets.push(normalized);
-        if (collectedMarkets.length >= targetCount) {
-          stoppedEarly = true;
-          break;
-        }
-      }
-      if (collectedMarkets.length >= targetCount) break;
-    }
+    const eligiblePageEvents = page.filter((event) => getGammaEventVolume(event) >= minVolume);
+    collectedEvents.push(...eligiblePageEvents);
 
-    if (page.length < GAMMA_PAGE_LIMIT) {
+    const lastEvent = page[page.length - 1];
+    if (page.length < GAMMA_SPORTS_EVENTS_PAGE_LIMIT || (lastEvent && getGammaEventVolume(lastEvent) < minVolume)) {
       break;
+    }
+    currentOffset += page.length;
+  }
+
+  for (const event of collectedEvents) {
+    const normalized = normalizeGammaSportsEvent(event);
+    if (normalized && normalized.status !== "stale") {
+      collectedMarkets.push(normalized);
     }
   }
 
   const discovery = createMarketDiscoveryFromMarkets(collectedMarkets);
-  const page = getMarketPage(discovery, params);
-  if (stoppedEarly) {
-    page.hasMore = true;
-    page.total = Math.max(page.total, page.offset + page.returned + 1);
-  }
+  const counts = buildMarketCountsForDiscovery(discovery, minVolume);
+  counts.eventPagesFetched = pagesFetched;
+  counts.eventsFetched = collectedEvents.length;
+  counts.rawMarkets = collectedEvents.reduce((total, event) => total + (event.markets?.length ?? 0), 0);
+  counts.sportsMarkets = collectedEvents.length;
+  counts.openSportsMarkets = collectedEvents.length;
+  counts.tradableMarkets = collectedMarkets.length;
+  counts.tradableSportsMarkets = collectedMarkets.length;
+  counts.displayedMarkets = collectedMarkets.length;
+
+  const page = getMarketPage(discovery, { ...params, minVolume });
   const requestDurationMs = Date.now() - requestStartedAt;
 
   if (process.env.NODE_ENV !== "production") {
-    console.log("[Traak] fast market page", {
+    console.log("[Traak] live sports market page", {
       pagesFetched,
-      rawMarkets,
-      eligibleSports,
-      tradableSports,
+      eventsFetched: collectedEvents.length,
+      rawMarkets: counts.rawMarkets,
       minVolume,
       returned: page.returned,
       requestDurationMs,
-      warmupStarted: false,
     });
   }
 
   return {
-    counts: {
-      ...createEmptyMarketCounts(),
-      minVolume,
-    },
-    countsLoading: true,
+    counts,
+    countsLoading: false,
     source: "polymarket",
     ...page,
-    warmupStarted: false,
     pagesFetched,
     requestDurationMs,
   };
@@ -897,53 +961,7 @@ export function prewarmMarketSnapshot() {
 }
 
 export async function getCachedMarketsApiPayload(params: MarketQueryParams = {}): Promise<MarketsApiPayload> {
-  const requestStartedAt = Date.now();
-  const store = getMarketSnapshotStore();
-  const cached = store.snapshot;
-  const minVolume = normalizeMinVolume(params.minVolume);
-
-  if (cached) {
-    const filterStartedAt = Date.now();
-    const page = getMarketPage(cached.value.discovery, { ...params, minVolume });
-    const payload: MarketsApiPayload = {
-      counts: buildMarketCountsForDiscovery(cached.value.discovery, minVolume),
-      countsLoading: false,
-      source: cached.value.discovery.source,
-      ...page,
-    };
-    const filterDurationMs = Date.now() - filterStartedAt;
-    const requestDurationMs = Date.now() - requestStartedAt;
-    if (process.env.NODE_ENV !== "production") {
-      console.log("[Traak] markets api request", {
-        cacheState: cached.expiresAt > Date.now() ? "hit" : "stale",
-        filterDurationMs,
-        numberReturned: payload.returned,
-        requestDurationMs,
-        totalMarkets: cached.value.discovery.markets.length,
-        minVolume,
-      });
-    }
-    if (cached.expiresAt <= Date.now()) {
-      void startSnapshotRefresh().catch(() => undefined);
-    }
-    return payload;
-  }
-
-  const fastPayload = await buildFastMarketPagePayload({ ...params, minVolume });
-  const warmupStarted = prewarmMarketSnapshot();
-  const requestDurationMs = Date.now() - requestStartedAt;
-  if (process.env.NODE_ENV !== "production") {
-    console.log("[Traak] markets api request", {
-      cacheState: "miss",
-      filterDurationMs: fastPayload.requestDurationMs,
-      numberReturned: fastPayload.returned,
-      requestDurationMs,
-      totalMarkets: fastPayload.total,
-      minVolume,
-      warmupStarted,
-    });
-  }
-  return fastPayload;
+  return getLiveSportsMarketsApiPayload(params);
 }
 
 export function resetMarketSnapshotCache() {

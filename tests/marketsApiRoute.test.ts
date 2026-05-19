@@ -62,7 +62,7 @@ const discovery: SportsMarketDiscovery = {
   source: "polymarket",
 };
 
-function makeGammaEventPage(page: number, eventCount = 1) {
+function makeGammaEventPage(page: number, eventCount = 1, volumeForIndex: (index: number) => number = () => 5000) {
   if (page > 0) return [];
   return Array.from({ length: eventCount }, (_, index) => ({
     id: `event-${index + 1}`,
@@ -70,6 +70,10 @@ function makeGammaEventPage(page: number, eventCount = 1) {
     title: `NBA event ${index + 1}`,
     category: "Sports",
     closed: false,
+    active: true,
+    volume: volumeForIndex(index),
+    volumeNum: volumeForIndex(index),
+    volume24hr: volumeForIndex(index),
     startDate: "2026-06-01T00:00:00Z",
     endDate: "2026-06-01T03:00:00Z",
     markets: [
@@ -124,29 +128,36 @@ describe("/api/polymarket/markets", () => {
     resetMarketSnapshotCache();
   });
 
-  it("respects limit and offset from cached snapshot", async () => {
-    seedMarketSnapshotCache(discovery);
+  it("fetches Gamma sports events and respects limit and offset", async () => {
+    const requestedUrls: string[] = [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      requestedUrls.push(String(input));
+      return new Response(JSON.stringify(makeGammaEventPage(0, 3)), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
-    const payload = await callMarketsApi("?limit=1&offset=1&minVolume=0");
+    const payload = await callMarketsApi("?limit=1&offset=1");
 
     expect(payload.limit).toBe(1);
     expect(payload.offset).toBe(1);
     expect(payload.returned).toBe(1);
     expect(payload.total).toBe(3);
-    expect(payload.markets[0].id).toBe("market-2");
+    expect(payload.markets[0].id).toBe("condition-2");
+    const params = new URL(requestedUrls[0]).searchParams;
+    expect(params.get("series_id")).toBe("10345");
+    expect(params.get("active")).toBe("true");
+    expect(params.get("closed")).toBe("false");
+    expect(params.get("order")).toBe("volume");
+    expect(params.get("ascending")).toBe("false");
+    expect(params.get("limit")).toBe("100");
+    expect(params.get("offset")).toBe("0");
   });
 
-  it("returns a cold first page without waiting for full snapshot warmup", async () => {
-    const secondPage = { resolve: undefined as undefined | ((value: Response) => void) };
+  it("returns a cold first page without starting cached count warmup", async () => {
     const fetchMock = vi.fn((input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("offset=0")) {
-        return Promise.resolve(new Response(JSON.stringify(makeGammaEventPage(0, 200)), { status: 200 }));
-      }
-      if (url.includes("offset=200")) {
-        return new Promise<Response>((resolve) => {
-          secondPage.resolve = resolve;
-        });
+        return Promise.resolve(new Response(JSON.stringify(makeGammaEventPage(0, 100, (index) => (index === 99 ? 1500 : 5000))), { status: 200 }));
       }
       return Promise.resolve(new Response(JSON.stringify([]), { status: 200 }));
     });
@@ -157,15 +168,10 @@ describe("/api/polymarket/markets", () => {
     const durationMs = Date.now() - startedAt;
 
     expect(durationMs).toBeLessThan(500);
-    expect(payload.countsLoading).toBe(true);
+    expect(payload.countsLoading).toBe(false);
     expect(payload.returned).toBe(1);
     expect(fetchMock).toHaveBeenCalled();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("offset=200"))).toBe(true);
-
-    if (secondPage.resolve) {
-      secondPage.resolve(new Response(JSON.stringify([]), { status: 200 }));
-    }
+    expect(fetchMock.mock.calls.some(([input]) => String(input).includes("offset=100"))).toBe(false);
   });
 
   it("returns loading counts when the snapshot is not ready", async () => {
@@ -194,72 +200,53 @@ describe("/api/polymarket/markets", () => {
     expect(fetchMock).toHaveBeenCalled();
   });
 
-  it("uses the snapshot cache after warmup", async () => {
+  it("does not require the snapshot cache after warmup", async () => {
     seedMarketSnapshotCache(discovery);
 
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify([]), { status: 200 }));
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(makeGammaEventPage(0, 2)), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    const payload = await callMarketsApi("?limit=1&offset=1&minVolume=0");
+    const payload = await callMarketsApi("?limit=1&offset=1");
 
     expect(payload.limit).toBe(1);
     expect(payload.offset).toBe(1);
     expect(payload.returned).toBe(1);
-    expect(payload.total).toBe(3);
-    expect(payload.markets[0].id).toBe("market-2");
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(payload.total).toBe(2);
+    expect(payload.markets[0].id).toBe("condition-2");
+    expect(fetchMock).toHaveBeenCalled();
   });
 
   it("excludes markets below the default minVolume and includes markets equal to it", async () => {
-    const lowDiscovery = {
-      ...discovery,
-      markets: [
-        { ...discovery.markets[0], id: "market-low", volume: 1500, volume24h: 1500 },
-        { ...discovery.markets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
-      ],
-      debugMarkets: [
-        { ...discovery.debugMarkets[0], id: "market-low", volume: 1500, volume24h: 1500 },
-        { ...discovery.debugMarkets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
-      ],
-    };
-    seedMarketSnapshotCache(lowDiscovery);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(makeGammaEventPage(0, 2, (index) => (index === 0 ? 1500 : 2000))), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const payload = await callMarketsApi();
 
     expect(payload.total).toBe(1);
-    expect(payload.markets[0].id).toBe("market-equal");
+    expect(payload.markets[0].id).toBe("condition-2");
   });
 
   it("respects the minVolume query param", async () => {
-    seedMarketSnapshotCache(discovery);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(makeGammaEventPage(0, 2, (index) => (index === 0 ? 2000 : 3000))), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const payload = await callMarketsApi("?minVolume=3000");
 
     expect(payload.total).toBe(1);
-    expect(payload.markets[0].id).toBe("market-3");
+    expect(payload.markets[0].id).toBe("condition-2");
   });
 
   it("defaults minVolume to 2000", async () => {
-    const lowDiscovery = {
-      ...discovery,
-      markets: [
-        { ...discovery.markets[0], id: "market-low", volume: 1500, volume24h: 1500 },
-        { ...discovery.markets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
-      ],
-      debugMarkets: [
-        { ...discovery.debugMarkets[0], id: "market-low", volume: 1500, volume24h: 1500 },
-        { ...discovery.debugMarkets[1], id: "market-equal", volume: 2000, volume24h: 2000 },
-      ],
-    };
-    seedMarketSnapshotCache(lowDiscovery);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(makeGammaEventPage(0, 2, (index) => (index === 0 ? 1500 : 2000))), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const payload = await callMarketsApi();
 
     expect(payload.total).toBe(1);
-    expect(payload.markets[0].id).toBe("market-equal");
+    expect(payload.markets[0].id).toBe("condition-2");
   });
 
-  it("does not refetch Gamma for filter changes when the snapshot exists", async () => {
+  it("fetches Gamma directly for filter changes instead of using the snapshot", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.includes("/events?") && url.includes("offset=0")) {
@@ -273,17 +260,18 @@ describe("/api/polymarket/markets", () => {
     const fetchesAfterFirst = fetchMock.mock.calls.length;
 
     await callMarketsApi("?limit=1&sport=NBA&status=live&sort=volume");
-    expect(fetchMock.mock.calls.length).toBe(fetchesAfterFirst);
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(fetchesAfterFirst);
   });
 
   it("keeps minVolume in load more requests", async () => {
-    seedMarketSnapshotCache(discovery);
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(makeGammaEventPage(0, 3)), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
 
     const payload = await callMarketsApi("?limit=1&offset=1&minVolume=2000");
 
     expect(payload.limit).toBe(1);
     expect(payload.offset).toBe(1);
-    expect(payload.total).toBe(2);
-    expect(payload.markets[0].id).toBe("market-2");
+    expect(payload.total).toBe(3);
+    expect(payload.markets[0].id).toBe("condition-2");
   });
 });

@@ -101,7 +101,7 @@ describe("DashboardPage", () => {
 
   it("does not render every discovered market on first paint", async () => {
     render(await DashboardPage());
-    await waitFor(() => expect(screen.getByText(/Showing 100 of 150 markets with \$2K\+ volume/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(/Showing 100 sports markets with \$2K\+ volume/i)).toBeInTheDocument());
     expect(screen.queryByText("NBA test market 149")).not.toBeInTheDocument();
   });
 });

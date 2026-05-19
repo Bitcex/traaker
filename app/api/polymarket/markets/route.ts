@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCachedMarketsApiPayload, type MarketQuerySort, type MarketQueryStatus } from "@/lib/polymarket/markets";
+import { getLiveSportsMarketsApiPayload, type MarketQuerySort, type MarketQueryStatus } from "@/lib/polymarket/markets";
 import { logError } from "@/lib/server/logger";
 
 export const runtime = "nodejs";
@@ -25,9 +25,7 @@ export async function GET(request: Request) {
     const sortParam = searchParams.get("sort");
     const statusParam = searchParams.get("status");
     const status = statusParam && statuses.has(statusParam as MarketQueryStatus) ? (statusParam as MarketQueryStatus) : "all";
-    const includeStale = process.env.NODE_ENV !== "production" && status === "stale";
-    const payload = await getCachedMarketsApiPayload({
-      includeStale,
+    const payload = await getLiveSportsMarketsApiPayload({
       limit: parseIntParam(searchParams.get("limit")),
       offset: parseIntParam(searchParams.get("offset")),
       search: searchParams.get("search") ?? undefined,
@@ -37,7 +35,7 @@ export async function GET(request: Request) {
       status,
     });
 
-    return NextResponse.json(payload, { headers: { "Cache-Control": "s-maxage=60, stale-while-revalidate=60" } });
+    return NextResponse.json(payload, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     logError("api.polymarket.markets", error);
     return NextResponse.json({ error: "Unable to load Polymarket sports markets." }, { status: 502 });

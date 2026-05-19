@@ -1,12 +1,10 @@
 import { MarketsExplorer } from "@/components/MarketsExplorer";
 import { MetricCard } from "@/components/MetricCard";
-import { createEmptyMarketCounts, createEmptyMarketPage, DEFAULT_MARKET_MIN_VOLUME, getCachedMarketCountsState } from "@/lib/polymarket/markets";
+import { createEmptyMarketPage } from "@/lib/polymarket/markets";
 
 export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
-  const countsState = getCachedMarketCountsState(DEFAULT_MARKET_MIN_VOLUME);
-  const counts = countsState.loading ? createEmptyMarketCounts() : countsState.counts;
   const initialPage = createEmptyMarketPage();
 
   return (
@@ -21,19 +19,16 @@ export default async function DashboardPage() {
 
       <section className="grid gap-4 md:grid-cols-4">
         <MetricCard
-          badge={countsState.loading ? "Calculating" : undefined}
-          detail={countsState.loading ? "Waiting for cached counts" : `${counts.totalEligibleSportsMarkets} eligible sports`}
-          label="$2K+ Markets"
-          value={countsState.loading ? "..." : String(counts.marketsWithMinVolume)}
+          detail="Fetched directly from Gamma events"
+          label="Minimum volume"
+          value="$2K+"
         />
-        <MetricCard label="Live" value={countsState.loading ? "..." : String(counts.liveWithMinVolume)} />
-        <MetricCard label="Upcoming" value={countsState.loading ? "..." : String(counts.upcomingWithMinVolume)} />
-        <MetricCard label="Stale Excluded" value={countsState.loading ? "..." : String(counts.staleExcluded)} detail="Dev filter only" />
+        <MetricCard label="Status" value="Live + upcoming" />
+        <MetricCard label="Source" value="Gamma" />
+        <MetricCard label="Startup counts" value="Skipped" detail="No cached count dependency" />
       </section>
 
       <MarketsExplorer
-        counts={counts}
-        countsLoading={countsState.loading}
         includeDebugFilters={process.env.NODE_ENV !== "production"}
         initialPage={initialPage}
         source="polymarket"
