@@ -143,11 +143,11 @@ export function MarketsExplorer({
   const selectedMinVolumeLabel = minVolumeOptions.find((option) => option.value === minVolume)?.label ?? "$2K+";
 
   return (
-    <section className="mt-8 space-y-4">
-      <div className="grid gap-3 lg:grid-cols-[1fr_auto]">
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
         <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-          <Input className="pl-9" onChange={(event) => setQuery(event.target.value)} placeholder="Search teams, leagues, outcomes" value={query} />
+          <Input className="h-9 w-[min(100vw-1.5rem,360px)] pl-9" onChange={(event) => setQuery(event.target.value)} placeholder="Search teams, leagues, outcomes" value={query} />
         </label>
         <div className="flex flex-wrap gap-2">
           {sports.map((item) => (
@@ -156,28 +156,19 @@ export function MarketsExplorer({
             </Button>
           ))}
         </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
         {statusOptions.map((item) => (
           <Button key={item} onClick={() => setStatus(item)} size="sm" type="button" variant={status === item ? "outline" : "ghost"}>
             {item === "all" ? "Live + upcoming" : item === "stale" ? "Stale/unknown" : item}
           </Button>
         ))}
-      </div>
-
-      <div className="flex flex-wrap gap-2">
         {sortOptions.map((item) => (
           <Button key={item.value} onClick={() => setSort(item.value)} size="sm" type="button" variant={sort === item.value ? "outline" : "ghost"}>
             {item.label}
           </Button>
         ))}
-      </div>
-
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="text-xs uppercase tracking-[0.18em] text-slate-500">Minimum volume</label>
         <select
           className="h-9 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-slate-200"
+          aria-label="Minimum volume"
           onChange={(event) => setMinVolume(Number(event.target.value))}
           value={minVolume}
         >

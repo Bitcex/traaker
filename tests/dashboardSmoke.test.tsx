@@ -95,7 +95,10 @@ describe("DashboardPage", () => {
 
   it("renders market rows", async () => {
     render(await DashboardPage());
-    expect(screen.getByRole("heading", { name: /trading terminal/i })).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search teams, leagues, outcomes")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /trading terminal/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/minimum volume/i, { selector: "p" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getAllByText("NBA test market 0").length).toBeGreaterThan(0));
   });
 
