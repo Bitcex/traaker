@@ -88,9 +88,8 @@ describe("MarketsExplorer", () => {
     render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
 
     fireEvent.click(screen.getByRole("button", { name: "NBA" }));
-    fireEvent.click(screen.getByRole("button", { name: "live" }));
-    fireEvent.click(screen.getByRole("button", { name: "Volume" }));
-    fireEvent.change(screen.getByPlaceholderText("Search teams, leagues, outcomes"), { target: { value: "knicks" } });
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "250" } });
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "knicks" } });
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(
@@ -98,11 +97,11 @@ describe("MarketsExplorer", () => {
         const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
         expect(lastCall).toBeDefined();
         const params = new URL(lastCall as string, "http://localhost").searchParams;
-        expect(params.get("limit")).toBe("100");
+        expect(params.get("limit")).toBe("250");
         expect(params.get("offset")).toBe("0");
         expect(params.get("minVolume")).toBe("2000");
         expect(params.get("sport")).toBe("NBA");
-        expect(params.get("status")).toBe("live");
+        expect(params.get("status")).toBe("all");
         expect(params.get("sort")).toBe("volume");
         expect(params.get("search")).toBe("knicks");
       },
@@ -140,7 +139,7 @@ describe("MarketsExplorer", () => {
     await pending;
   });
 
-  it("keeps minVolume on load more requests", async () => {
+  it("keeps minVolume on range requests", async () => {
     const requestedUrls: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -151,24 +150,21 @@ describe("MarketsExplorer", () => {
       if (url.includes("/prewarm")) {
         return new Response(JSON.stringify({ started: true }), { status: 200 });
       }
-      if (url.includes("offset=1")) {
-        return new Response(JSON.stringify({ ...initialPage, markets: [{ ...market, id: "market-2", slug: "nba-market-2", conditionId: "condition-2" }], counts, countsLoading: false, source: "polymarket" }), { status: 200 });
-      }
       return new Response(JSON.stringify({ ...initialPage, hasMore: true, counts, countsLoading: false, source: "polymarket" }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
     render(<MarketsExplorer initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "Load more bubbles" })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole("button", { name: "Load more bubbles" }));
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "500" } });
 
     await waitFor(() => {
       const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
       expect(lastCall).toBeDefined();
       const params = new URL(lastCall as string, "http://localhost").searchParams;
       expect(params.get("minVolume")).toBe("2000");
-      expect(params.get("offset")).toBe("1");
+      expect(params.get("limit")).toBe("500");
+      expect(params.get("offset")).toBe("0");
     });
   });
 });

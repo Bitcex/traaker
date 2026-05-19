@@ -6,7 +6,7 @@ import { X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type RefAttributes } from "react";
 import { forceCollide, forceX, forceY } from "d3-force";
 import { Button } from "@/components/ui/button";
-import { findTeamStyle, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
+import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 import type { ForceGraphMethods, ForceGraphProps, NodeObject } from "react-force-graph-2d";
 
@@ -18,22 +18,21 @@ const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), { ssr: false 
 
 export type MarketBubbleNode = {
   id: string;
-  name: string;
   title: string;
   sport: string;
-  teamKey?: string;
   volume: number;
   liquidity: number;
   priceChange: number;
-  yesPrice?: number;
-  noPrice?: number;
   marketUrl?: string;
+  tradeUrl?: string;
   logoUrl?: string;
   primaryColor: string;
   secondaryColor: string;
   glowColor: string;
-  label: string;
-  ticker: string;
+  favoredOutcome: string;
+  favoredPrice: number;
+  priceCents: number;
+  outcomes: MarketOutcomeOption[];
   trendScore: number;
   isTrending: boolean;
   driftPhase: number;
@@ -42,15 +41,15 @@ export type MarketBubbleNode = {
   y?: number;
 };
 
-type BackgroundParticle = {
-  x: number;
-  y: number;
-  size: number;
-  phase: number;
-  speed: number;
+export type MarketOutcomeOption = {
+  name: string;
+  price: number;
+  priceCents: number;
 };
 
-const textStopWords = new Set(["will", "the", "market", "moneyline", "winner", "win", "to", "yes", "no", "vs", "v", "at"]);
+type RawOutcomeMarket = TerminalMarket & {
+  outcomePrices?: unknown;
+};
 
 const money = (value: number) => {
   const numeric = Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -66,33 +65,44 @@ const money = (value: number) => {
 const pct = (value: number) => `${value >= 0 ? "+" : ""}${(value * 100).toFixed(1)}%`;
 const logoCache = new Map<string, HTMLImageElement>();
 
-const compactTeamWord = (word?: string) => {
-  if (!word) return "";
-  return word.length <= 7 ? word.toUpperCase() : word.slice(0, 5).toUpperCase();
+export const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, price)) * 100)}¢`;
+
+const cleanOutcomeName = (name: string, marketTitle: string) => {
+  const cleaned = name.replace(/\s+/g, " ").trim();
+  if (cleaned && !/^(yes|no)$/i.test(cleaned)) return cleaned;
+  const matchup = marketTitle.split(/\s+(?:vs\.?|v\.?|at)\s+/i).filter(Boolean);
+  const fallback = matchup[0] ?? marketTitle;
+  return fallback.replace(/\?.*$/, "").replace(/\s+/g, " ").trim() || cleaned || "Market";
 };
 
-const shortName = (title: string) => {
-  const cleaned = title.replace(/\s+/g, " ").trim();
-  if (cleaned.length <= 22) return cleaned;
-  return `${cleaned.slice(0, 19).trim()}...`;
+const compactOutcomeName = (name: string) => {
+  const cleaned = name.replace(/\s+/g, " ").trim();
+  if (cleaned.length <= 13) return cleaned;
+  const words = cleaned.split(" ");
+  if (words.length > 1) return words.at(-1) ?? cleaned.slice(0, 13);
+  return `${cleaned.slice(0, 12)}…`;
 };
 
-const makeTicker = (title: string) => {
-  const cleaned = title.replace(/[^\w\s/-]/g, " ").replace(/\s+/g, " ").trim();
-  const matchup = cleaned.split(/\s+(?:vs|v|at)\s+/i).filter(Boolean);
-  if (matchup.length >= 2) {
-    return matchup
-      .slice(0, 2)
-      .map((side) => compactTeamWord(side.split(/\s+/).filter(Boolean).at(-1)))
-      .filter(Boolean)
-      .join("/");
+const parseStringArray = (value: unknown) => {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.map(String).filter(Boolean) : [];
+  } catch {
+    return [];
   }
-  const words = cleaned
-    .split(/\s+/)
-    .filter((word) => word.length > 1 && !textStopWords.has(word.toLowerCase()))
-    .slice(0, 2);
-  if (words.length === 0) return "TM";
-  return words.map((word) => word.slice(0, 5).toUpperCase()).join(" ");
+};
+
+const parseNumberArray = (value: unknown) => {
+  if (Array.isArray(value)) return value.map(Number).filter(Number.isFinite);
+  if (typeof value !== "string") return [];
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? parsed.map(Number).filter(Number.isFinite) : [];
+  } catch {
+    return [];
+  }
 };
 
 function getLogoImage(logoUrl?: string) {
@@ -115,68 +125,80 @@ const hashString = (value: string) => {
   return hash >>> 0;
 };
 
-const sportCluster = (sport: string) => {
-  const normalized = sport.toLowerCase();
-  if (normalized.includes("nba") || normalized.includes("basketball") || normalized.includes("wnba")) return { x: -300, y: -125 };
-  if (normalized.includes("nfl") || normalized.includes("football")) return { x: 0, y: -160 };
-  if (normalized.includes("soccer") || normalized.includes("premier") || normalized.includes("champions")) return { x: 305, y: -105 };
-  if (normalized.includes("ufc") || normalized.includes("mma") || normalized.includes("boxing")) return { x: -260, y: 145 };
-  if (normalized.includes("tennis") || normalized.includes("golf")) return { x: 230, y: 150 };
-  if (normalized.includes("mlb") || normalized.includes("baseball") || normalized.includes("nhl") || normalized.includes("hockey")) return { x: 0, y: 130 };
-  return { x: 0, y: 0 };
-};
-
-const seededPosition = (id: string, sport: string) => {
-  const cluster = sportCluster(sport);
+const seededPosition = (id: string) => {
   const hash = hashString(id);
   const angle = ((hash % 360) * Math.PI) / 180;
-  const distance = 50 + (hash % 120);
+  const distance = 20 + (hash % 240);
   return {
-    x: cluster.x + Math.cos(angle) * distance,
-    y: cluster.y + Math.sin(angle) * distance,
+    x: Math.cos(angle) * distance,
+    y: Math.sin(angle) * distance,
   };
 };
 
 const trendScoreForMarket = (market: TerminalMarket, volume: number) =>
   Math.abs(market.priceMove24h) * 125 + Math.max(0, market.volumeAcceleration) * 2 + market.recentTradesCount / 8 + Math.log10(volume + 1);
 
-function createBackgroundParticles(count = 95): BackgroundParticle[] {
-  return Array.from({ length: count }, (_, index) => {
-    const hash = hashString(`particle-${index}`);
+export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption[] {
+  const arrayOutcomes = parseStringArray(market.outcomes);
+  const rawPrices = parseNumberArray(market.outcomePrices);
+  const names = arrayOutcomes.length > 0 ? arrayOutcomes : [market.outcomes.yes, market.outcomes.no];
+  const prices = rawPrices.length >= names.length ? rawPrices : [market.yesPrice, market.noPrice];
+  return names.map((name, index) => {
+    const price = Number.isFinite(prices[index]) ? Math.max(0, Math.min(1, prices[index])) : 0;
     return {
-      x: (hash % 1000) / 1000,
-      y: (Math.floor(hash / 1000) % 1000) / 1000,
-      size: 0.45 + (hash % 11) / 10,
-      phase: (hash % 628) / 100,
-      speed: 0.35 + (hash % 9) / 20,
+      name: cleanOutcomeName(name, market.title),
+      price,
+      priceCents: Math.round(price * 100),
     };
   });
 }
 
+export function getFavoredOutcome(market: RawOutcomeMarket) {
+  const outcomes = getMarketOutcomes(market);
+  return outcomes.reduce((best, current) => (current.price > best.price ? current : best), outcomes[0] ?? { name: "Market", price: 0, priceCents: 0 });
+}
+
+function marketColors(market: TerminalMarket, favoredOutcome: string) {
+  const teamStyle = findTeamStyleMatch(`${favoredOutcome} ${market.title}`);
+  if (teamStyle) {
+    return {
+      primary: teamStyle.primary,
+      secondary: teamStyle.secondary,
+      logoUrl: teamStyle.logoUrl,
+    };
+  }
+  if (market.priceMove24h > 0.005) return { primary: "#16C784", secondary: "#7CFFB2" };
+  if (market.priceMove24h < -0.005) return { primary: "#EA3943", secondary: "#FF7A84" };
+  return { primary: "#3A3F47", secondary: "#9AA4B2" };
+}
+
 export function marketToBubbleNode(market: TerminalMarket): MarketBubbleNode {
   const volume = Number.isFinite(market.volume) ? market.volume : market.volume24h;
-  const style = findTeamStyle(market.title, `${market.sport} ${market.league}`);
-  const val = marketBubbleRadius(volume);
+  const sizeBasis = Math.max(volume, market.liquidity);
+  const favored = getFavoredOutcome(market);
+  const outcomes = getMarketOutcomes(market);
+  const style = marketColors(market, favored.name);
+  const val = marketBubbleRadius(sizeBasis);
   const trendScore = trendScoreForMarket(market, volume);
-  const position = seededPosition(market.id, `${market.sport} ${market.league}`);
+  const position = seededPosition(market.id);
 
   return {
     id: market.id,
-    name: shortName(market.title),
     title: market.title,
     sport: market.league || market.sport,
     volume,
     liquidity: market.liquidity,
     priceChange: market.priceMove24h,
-    yesPrice: market.yesPrice,
-    noPrice: market.noPrice,
     marketUrl: `/markets/${market.id}`,
+    tradeUrl: `/trade/${market.id}`,
     logoUrl: style.logoUrl,
     primaryColor: style.primary,
     secondaryColor: style.secondary,
     glowColor: momentumGlowColor(market.priceMove24h, volume),
-    label: shortName(market.title).toUpperCase(),
-    ticker: makeTicker(market.title),
+    favoredOutcome: compactOutcomeName(favored.name),
+    favoredPrice: favored.price,
+    priceCents: favored.priceCents,
+    outcomes,
     trendScore,
     isTrending: trendScore >= 10 || Math.abs(market.priceMove24h) >= 0.05 || market.recentTradesCount >= 40 || market.volumeAcceleration >= 1.5,
     driftPhase: (hashString(market.id) % 628) / 100,
@@ -185,51 +207,19 @@ export function marketToBubbleNode(market: TerminalMarket): MarketBubbleNode {
   };
 }
 
-function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundParticle[]) {
-  const now = Date.now() / 1000;
+function drawBackground(ctx: CanvasRenderingContext2D) {
   const width = ctx.canvas.width;
   const height = ctx.canvas.height;
 
   ctx.save();
   ctx.resetTransform();
-
-  const background = ctx.createLinearGradient(0, 0, width, height);
-  background.addColorStop(0, "#020617");
-  background.addColorStop(0.44, "#07111f");
-  background.addColorStop(1, "#020617");
-  ctx.fillStyle = background;
+  ctx.fillStyle = "#050505";
   ctx.fillRect(0, 0, width, height);
-
-  const hazeOne = ctx.createRadialGradient(width * 0.24, height * 0.22, 0, width * 0.24, height * 0.22, width * 0.58);
-  hazeOne.addColorStop(0, "rgba(14, 165, 233, 0.13)");
-  hazeOne.addColorStop(1, "rgba(14, 165, 233, 0)");
-  ctx.fillStyle = hazeOne;
+  const shade = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.15, width / 2, height / 2, Math.max(width, height) * 0.78);
+  shade.addColorStop(0, "rgba(24, 24, 27, 0.22)");
+  shade.addColorStop(1, "rgba(0, 0, 0, 0.88)");
+  ctx.fillStyle = shade;
   ctx.fillRect(0, 0, width, height);
-
-  const hazeTwoX = width * (0.72 + Math.sin(now * 0.08) * 0.035);
-  const hazeTwoY = height * (0.65 + Math.cos(now * 0.07) * 0.04);
-  const hazeTwo = ctx.createRadialGradient(hazeTwoX, hazeTwoY, 0, hazeTwoX, hazeTwoY, width * 0.5);
-  hazeTwo.addColorStop(0, "rgba(251, 191, 36, 0.08)");
-  hazeTwo.addColorStop(1, "rgba(251, 191, 36, 0)");
-  ctx.fillStyle = hazeTwo;
-  ctx.fillRect(0, 0, width, height);
-
-  for (const particle of particles) {
-    const x = ((particle.x * width + Math.sin(now * particle.speed + particle.phase) * 10) % width) + 0.5;
-    const y = ((particle.y * height + Math.cos(now * particle.speed * 0.7 + particle.phase) * 8) % height) + 0.5;
-    const alpha = 0.14 + Math.sin(now * particle.speed + particle.phase) * 0.08;
-    ctx.fillStyle = `rgba(203, 213, 225, ${alpha})`;
-    ctx.beginPath();
-    ctx.arc(x, y, particle.size, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  const vignette = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.18, width / 2, height / 2, Math.max(width, height) * 0.72);
-  vignette.addColorStop(0, "rgba(2, 6, 23, 0)");
-  vignette.addColorStop(1, "rgba(2, 6, 23, 0.74)");
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, width, height);
-
   ctx.restore();
 }
 
@@ -242,7 +232,7 @@ function drawTextLine(ctx: CanvasRenderingContext2D, text: string, x: number, y:
 
 function drawLogoMark(node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, opacity: number) {
   const logo = getLogoImage(node.logoUrl);
-  const logoSize = radius * 0.72;
+  const logoSize = radius * 0.38;
 
   ctx.save();
   ctx.globalAlpha *= opacity;
@@ -252,10 +242,17 @@ function drawLogoMark(node: NodeObject<MarketBubbleNode>, ctx: CanvasRenderingCo
     ctx.clip();
     ctx.drawImage(logo, x - logoSize / 2, y - logoSize / 2, logoSize, logoSize);
   } else {
-    const darkText = node.primaryColor.toLowerCase() === "#ffffff";
-    ctx.fillStyle = darkText ? "#0f172a" : "#ffffff";
-    ctx.font = `900 ${Math.max(12, radius * 0.34)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-    drawTextLine(ctx, node.ticker.split("/").map((part) => part[0]).join("") || "TM", x, y - radius * 0.02, radius * 0.95);
+    ctx.strokeStyle = "rgba(255,255,255,0.55)";
+    ctx.lineWidth = Math.max(1.4, radius * 0.025);
+    ctx.beginPath();
+    ctx.arc(x, y, logoSize * 0.36, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - logoSize * 0.28, y);
+    ctx.lineTo(x + logoSize * 0.28, y);
+    ctx.moveTo(x, y - logoSize * 0.28);
+    ctx.lineTo(x, y + logoSize * 0.28);
+    ctx.stroke();
   }
   ctx.restore();
 }
@@ -270,96 +267,77 @@ function drawBubble(
   const introAlpha = Math.min(1, Math.max(0, (now - options.introStartedAt) / 900));
   const easeIntro = 1 - Math.pow(1 - introAlpha, 3);
   const isHovered = node.id === options.hoveredId;
-  const hoverBoost = isHovered ? 1.09 : 1;
-  const pulse = node.isTrending ? 1 + Math.sin(now / 520 + node.driftPhase) * 0.045 : 1;
+  const hoverBoost = isHovered ? 1.06 : 1;
+  const pulse = node.isTrending ? 1 + Math.sin(now / 900 + node.driftPhase) * 0.025 : 1;
   const radius = node.val * hoverBoost * pulse * (0.82 + easeIntro * 0.18);
-  const driftStrength = options.isMobile ? 0.8 : 1.75;
-  const x = (node.x ?? 0) + Math.sin(now / 2300 + node.driftPhase) * driftStrength;
-  const y = (node.y ?? 0) + Math.cos(now / 2700 + node.driftPhase * 1.2) * driftStrength;
+  const driftStrength = options.isMobile ? 0.35 : 0.75;
+  const x = (node.x ?? 0) + Math.sin(now / 3400 + node.driftPhase) * driftStrength;
+  const y = (node.y ?? 0) + Math.cos(now / 3900 + node.driftPhase * 1.2) * driftStrength;
   const screenRadius = radius / globalScale;
-  const canRenderText = screenRadius >= (options.isMobile ? 32 : 24);
-  const renderFullText = screenRadius > (options.isMobile ? 48 : 38);
-  const glowRadius = radius * (isHovered ? 1.72 : node.isTrending ? 1.52 : 1.36);
+  const canRenderText = screenRadius >= (options.isMobile ? 20 : 16);
+  const canRenderPrice = screenRadius >= (options.isMobile ? 24 : 20);
+  const canRenderMovement = screenRadius >= (options.isMobile ? 42 : 34);
+  const glowRadius = radius * (isHovered ? 1.2 : node.isTrending ? 1.12 : 1.06);
 
   ctx.save();
   ctx.globalAlpha = easeIntro;
 
-  const glow = ctx.createRadialGradient(x, y, radius * 0.72, x, y, glowRadius);
-  glow.addColorStop(0, node.isTrending ? "rgba(251, 191, 36, 0.34)" : node.glowColor.replace("0.85", "0.28").replace("0.72", "0.24").replace("0.92", "0.34"));
-  glow.addColorStop(0.5, isHovered ? node.glowColor : "rgba(15, 23, 42, 0.02)");
-  glow.addColorStop(1, "rgba(15, 23, 42, 0)");
+  const glow = ctx.createRadialGradient(x, y, radius * 0.86, x, y, glowRadius);
+  glow.addColorStop(0, isHovered ? node.glowColor : "rgba(255,255,255,0.02)");
+  glow.addColorStop(1, "rgba(0,0,0,0)");
   ctx.fillStyle = glow;
   ctx.beginPath();
   ctx.arc(x, y, glowRadius, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.shadowColor = "rgba(0, 0, 0, 0.55)";
-  ctx.shadowBlur = radius * 0.28;
-  ctx.shadowOffsetY = radius * 0.12;
-
-  const fill = ctx.createRadialGradient(x - radius * 0.28, y - radius * 0.36, radius * 0.12, x, y, radius);
-  fill.addColorStop(0, "rgba(255, 255, 255, 0.72)");
-  fill.addColorStop(0.18, `${node.primaryColor}f2`);
-  fill.addColorStop(0.72, `${node.primaryColor}c8`);
-  fill.addColorStop(1, "rgba(15, 23, 42, 0.72)");
+  const fill = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.34, radius * 0.12, x, y, radius);
+  fill.addColorStop(0, `${node.primaryColor}66`);
+  fill.addColorStop(0.48, "#18181b");
+  fill.addColorStop(1, "#030303");
   ctx.fillStyle = fill;
   ctx.beginPath();
   ctx.arc(x, y, radius, 0, Math.PI * 2);
   ctx.fill();
 
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  ctx.lineWidth = Math.max(2.2, radius * 0.055);
-  ctx.strokeStyle = node.secondaryColor;
+  ctx.lineWidth = Math.max(3, radius * 0.08);
+  ctx.strokeStyle = node.primaryColor;
   ctx.beginPath();
   ctx.arc(x, y, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.lineWidth = Math.max(1.2, radius * 0.025);
-  ctx.strokeStyle = isHovered ? "rgba(255, 255, 255, 0.72)" : "rgba(255, 255, 255, 0.32)";
+  ctx.lineWidth = Math.max(1, radius * 0.025);
+  ctx.strokeStyle = node.secondaryColor;
   ctx.beginPath();
-  ctx.arc(x, y, radius * 0.88, Math.PI * 1.08, Math.PI * 1.72);
+  ctx.arc(x, y, radius - Math.max(4, radius * 0.1), 0, Math.PI * 2);
   ctx.stroke();
 
-  ctx.lineWidth = Math.max(1.2, radius * 0.026);
-  ctx.strokeStyle = node.isTrending ? "rgba(251, 191, 36, 0.72)" : node.glowColor;
+  ctx.strokeStyle = "rgba(255,255,255,0.35)";
+  ctx.lineWidth = Math.max(1, radius * 0.018);
   ctx.beginPath();
-  ctx.arc(x, y, radius * 0.96, 0, Math.PI * 2);
+  ctx.arc(x, y, radius * 0.82, Math.PI * 1.08, Math.PI * 1.85);
   ctx.stroke();
-
-  ctx.fillStyle = "rgba(255,255,255,0.24)";
-  ctx.beginPath();
-  ctx.ellipse(x - radius * 0.22, y - radius * 0.36, radius * 0.36, radius * 0.13, -0.48, 0, Math.PI * 2);
-  ctx.fill();
 
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
 
   if (canRenderText) {
-    const darkText = node.primaryColor.toLowerCase() === "#ffffff";
-    const mainTextColor = darkText ? "#0f172a" : "#f8fafc";
+    drawLogoMark(node, ctx, x, y - radius * 0.42, radius, screenRadius > 34 ? 0.92 : 0.55);
 
-    if (renderFullText) {
-      drawLogoMark(node, ctx, x, y - radius * 0.38, radius, 0.46);
+    ctx.fillStyle = "#f8fafc";
+    ctx.font = `800 ${Math.max(10, radius * (node.favoredOutcome.length > 9 ? 0.2 : 0.24))}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, node.favoredOutcome, x, y - radius * 0.06, radius * 1.45);
+  }
 
-      ctx.fillStyle = mainTextColor;
-      ctx.font = `800 ${Math.max(10, radius * 0.21)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-      drawTextLine(ctx, node.label, x, y - radius * 0.05, radius * 1.5);
+  if (canRenderPrice) {
+    ctx.fillStyle = "#ffffff";
+    ctx.font = `900 ${Math.max(11, radius * 0.24)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, formatCents(node.favoredPrice), x, y + radius * 0.28, radius * 1.15);
+  }
 
-      ctx.fillStyle = node.priceChange >= 0 ? "#bbf7d0" : "#fecdd3";
-      ctx.font = `800 ${Math.max(10, radius * 0.2)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-      drawTextLine(ctx, pct(node.priceChange), x, y + radius * 0.24, radius * 1.3);
-
-      ctx.fillStyle = "#e0f2fe";
-      ctx.font = `700 ${Math.max(9, radius * 0.16)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-      drawTextLine(ctx, money(node.volume), x, y + radius * 0.5, radius * 1.2);
-    } else {
-      drawLogoMark(node, ctx, x, y - radius * 0.18, radius, 0.85);
-      ctx.fillStyle = mainTextColor;
-      ctx.font = `800 ${Math.max(9, radius * 0.24)}px Inter, ui-sans-serif, system-ui, sans-serif`;
-      drawTextLine(ctx, node.ticker, x, y + radius * 0.28, radius * 1.15);
-    }
+  if (canRenderMovement) {
+    ctx.fillStyle = node.priceChange >= 0 ? "#7CFFB2" : "#FF7A84";
+    ctx.font = `800 ${Math.max(8, radius * 0.12)}px Inter, ui-sans-serif, system-ui, sans-serif`;
+    drawTextLine(ctx, pct(node.priceChange), x, y + radius * 0.56, radius * 1.0);
   }
 
   if (options.priorityPass) {
@@ -377,14 +355,10 @@ export function MarketBubbleMap({
   markets,
   isLoading = false,
   isRefreshing = false,
-  onLoadMore,
-  hasMore = false,
 }: {
   markets: TerminalMarket[];
   isLoading?: boolean;
   isRefreshing?: boolean;
-  onLoadMore?: () => void;
-  hasMore?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<ForceGraphMethods<MarketBubbleNode, object> | null>(null);
@@ -397,7 +371,6 @@ export function MarketBubbleMap({
 
   const nodes = useMemo(() => markets.map(marketToBubbleNode), [markets]);
   const graphData = useMemo(() => ({ nodes, links: [] }), [nodes]);
-  const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
 
   useEffect(() => {
@@ -420,15 +393,15 @@ export function MarketBubbleMap({
   useEffect(() => {
     const graph = graphRef.current;
     if (!graph || typeof graph.d3Force !== "function" || nodes.length === 0) return;
-    graph.d3Force("collide", forceCollide<NodeObject<MarketBubbleNode>>((node) => node.val + 10).strength(1));
-    graph.d3Force("charge")?.strength?.(-12);
-    graph.d3Force("clusterX", forceX<NodeObject<MarketBubbleNode>>((node) => sportCluster(node.sport).x).strength(0.045));
-    graph.d3Force("clusterY", forceY<NodeObject<MarketBubbleNode>>((node) => sportCluster(node.sport).y).strength(0.04));
+    graph.d3Force("collide", forceCollide<NodeObject<MarketBubbleNode>>((node) => node.val + (node.val > 70 ? 3 : 2)).strength(0.96));
+    graph.d3Force("charge")?.strength?.(-5);
+    graph.d3Force("clusterX", forceX<NodeObject<MarketBubbleNode>>(0).strength(0.085));
+    graph.d3Force("clusterY", forceY<NodeObject<MarketBubbleNode>>(0).strength(0.085));
     graph.d3Force("center");
     graph.d3ReheatSimulation();
     if (!hasFitInitialGraph.current) {
       hasFitInitialGraph.current = true;
-      window.setTimeout(() => graph.zoomToFit?.(900, isMobile ? 28 : 62), 180);
+      window.setTimeout(() => graph.zoomToFit?.(900, isMobile ? 8 : 12), 220);
     }
   }, [isMobile, nodes]);
 
@@ -471,15 +444,15 @@ export function MarketBubbleMap({
 
   const drawMapBackground = useCallback(
     (ctx: CanvasRenderingContext2D) => {
-      drawBackground(ctx, particles);
+      drawBackground(ctx);
     },
-    [particles],
+    [],
   );
 
   return (
     <div
       aria-label={`${nodes.length} sports market bubble map`}
-      className="relative h-[calc(100vh-8.8rem)] min-h-[460px] overflow-hidden rounded-lg border border-slate-800 bg-slate-950 shadow-2xl shadow-cyan-950/20 sm:h-[calc(100vh-7.6rem)]"
+      className="relative h-[calc(100vh-6.75rem)] min-h-[460px] w-screen overflow-hidden bg-[#050505] sm:h-[calc(100vh-6.25rem)]"
       onDoubleClick={handleCenterMap}
       onMouseMove={handleMouseMove}
       role="application"
@@ -491,24 +464,24 @@ export function MarketBubbleMap({
           width={dimensions.width}
           height={dimensions.height}
           autoPauseRedraw={false}
-          backgroundColor="#020617"
-          cooldownTicks={150}
-          d3AlphaDecay={0.015}
+          backgroundColor="#050505"
+          cooldownTicks={240}
+          d3AlphaDecay={0.012}
           d3VelocityDecay={0.28}
           enableNodeDrag
           enablePanInteraction
           enablePointerInteraction
           enableZoomInteraction
           linkVisibility={false}
-          maxZoom={4.2}
-          minZoom={0.45}
+          maxZoom={3.4}
+          minZoom={0.25}
           nodeCanvasObject={drawNode}
           nodeId="id"
-          nodeLabel={(node) => `${node.title} | ${money(node.volume)} volume | ${pct(node.priceChange)} movement`}
+          nodeLabel={(node) => `${node.favoredOutcome} ${formatCents(node.favoredPrice)} | ${node.title}`}
           nodePointerAreaPaint={(node, color, ctx) => {
             ctx.fillStyle = color;
             ctx.beginPath();
-            ctx.arc(node.x ?? 0, node.y ?? 0, node.val + 12, 0, Math.PI * 2);
+            ctx.arc(node.x ?? 0, node.y ?? 0, node.val + 6, 0, Math.PI * 2);
             ctx.fill();
           }}
           nodeRelSize={1}
@@ -536,12 +509,12 @@ export function MarketBubbleMap({
         >
           <p className="line-clamp-2 font-semibold text-slate-50">{hoveredMarket.title}</p>
           <div className="mt-2 grid grid-cols-2 gap-2 text-slate-400">
+            <span>Favored</span>
+            <span className="text-right text-slate-100">
+              {hoveredMarket.favoredOutcome} {formatCents(hoveredMarket.favoredPrice)}
+            </span>
             <span>Liquidity</span>
             <span className="text-right text-slate-100">{money(hoveredMarket.liquidity)}</span>
-            <span>Odds</span>
-            <span className="text-right text-slate-100">
-              {hoveredMarket.yesPrice != null ? `${(hoveredMarket.yesPrice * 100).toFixed(1)}c` : "N/A"}
-            </span>
             <span>Movement</span>
             <span className={hoveredMarket.priceChange >= 0 ? "text-right text-emerald-200" : "text-right text-rose-200"}>{pct(hoveredMarket.priceChange)}</span>
           </div>
@@ -555,14 +528,6 @@ export function MarketBubbleMap({
       {isRefreshing ? (
         <div className="absolute left-3 top-3 rounded-full border border-cyan-400/30 bg-slate-950/80 px-3 py-1 text-xs text-cyan-100">
           Refreshing
-        </div>
-      ) : null}
-
-      {hasMore && onLoadMore ? (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2">
-          <Button onClick={onLoadMore} size="sm" type="button" variant="secondary">
-            Load more bubbles
-          </Button>
         </div>
       ) : null}
 
@@ -591,24 +556,39 @@ export function MarketBubbleMap({
               <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Liquidity</p>
               <p className="mt-1 font-semibold text-slate-100">{money(selectedMarket.liquidity)}</p>
             </div>
-            <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">YES</p>
-              <p className="mt-1 font-semibold text-slate-100">{selectedMarket.yesPrice != null ? `${(selectedMarket.yesPrice * 100).toFixed(1)}c` : "N/A"}</p>
+            <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3 col-span-2">
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Favored</p>
+              <p className="mt-1 font-semibold text-slate-100">
+                {selectedMarket.favoredOutcome} {formatCents(selectedMarket.favoredPrice)}
+              </p>
             </div>
-            <div className="rounded-md border border-slate-800 bg-slate-900/70 p-3">
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-500">NO</p>
-              <p className="mt-1 font-semibold text-slate-100">{selectedMarket.noPrice != null ? `${(selectedMarket.noPrice * 100).toFixed(1)}c` : "N/A"}</p>
+          </div>
+
+          <div className="mt-4 rounded-md border border-slate-800 bg-slate-900/70 p-3">
+            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Outcomes</p>
+            <div className="mt-3 space-y-2">
+              {selectedMarket.outcomes.map((outcome) => (
+                <div key={`${selectedMarket.id}-${outcome.name}`} className="flex items-center justify-between gap-3 text-sm">
+                  <span className="truncate text-slate-200">{outcome.name}</span>
+                  <span className="font-semibold text-slate-50">{formatCents(outcome.price)}</span>
+                </div>
+              ))}
             </div>
           </div>
 
           <p className="mt-4 text-sm text-slate-400">Momentum glow: {pct(selectedMarket.priceChange)}</p>
 
-          {selectedMarket.marketUrl ? (
+          {selectedMarket.tradeUrl ? (
             <Link
               className="mt-5 inline-flex h-9 items-center justify-center rounded-md bg-cyan-400 px-4 text-sm font-medium text-slate-950 transition hover:bg-cyan-300"
-              href={selectedMarket.marketUrl}
+              href={selectedMarket.tradeUrl}
             >
-              Open market
+              Trade market
+            </Link>
+          ) : null}
+          {selectedMarket.marketUrl ? (
+            <Link className="ml-3 mt-5 inline-flex h-9 items-center justify-center rounded-md border border-slate-700 px-4 text-sm font-medium text-slate-100 transition hover:bg-slate-900" href={selectedMarket.marketUrl}>
+              Open details
             </Link>
           ) : null}
         </aside>

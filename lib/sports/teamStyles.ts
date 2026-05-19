@@ -101,16 +101,19 @@ const SPORT_FALLBACKS = {
   unknown: { primary: "#22D3EE", secondary: "#334155" },
 } satisfies Record<string, { primary: string; secondary: string }>;
 
-export function findTeamStyle(title: string, sport: string) {
+export function findTeamStyleMatch(title: string) {
   const normalizedTitle = title.toLowerCase();
   for (const style of Object.values(TEAM_STYLES) as TeamStyle[]) {
     if (style.aliases.some((alias) => normalizedTitle.includes(alias))) {
-      return style.logoUrl
-        ? { primary: style.primary, secondary: style.secondary, logoUrl: style.logoUrl }
-        : { primary: style.primary, secondary: style.secondary };
+      return style.logoUrl ? { primary: style.primary, secondary: style.secondary, logoUrl: style.logoUrl } : { primary: style.primary, secondary: style.secondary };
     }
   }
+  return null;
+}
 
+export function findTeamStyle(title: string, sport: string) {
+  const matchedStyle = findTeamStyleMatch(title);
+  if (matchedStyle) return matchedStyle;
   const normalizedSport = sport.toLowerCase();
   const fallbackKey = Object.keys(SPORT_FALLBACKS).find((key) => normalizedSport.includes(key)) ?? "unknown";
   return SPORT_FALLBACKS[fallbackKey as keyof typeof SPORT_FALLBACKS];
@@ -118,7 +121,7 @@ export function findTeamStyle(title: string, sport: string) {
 
 export function marketBubbleRadius(volume: number) {
   const numericVolume = Number.isFinite(volume) ? Math.max(0, volume) : 0;
-  return Math.max(18, Math.min(110, 18 + Math.log10(numericVolume + 1) * 18));
+  return Math.max(22, Math.min(96, 18 + Math.log10(numericVolume + 1) * 12));
 }
 
 export function momentumGlowColor(priceChange: number, volume: number) {

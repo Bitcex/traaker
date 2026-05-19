@@ -95,7 +95,7 @@ describe("DashboardPage", () => {
 
   it("renders the bubble map", async () => {
     render(await DashboardPage());
-    expect(screen.getByPlaceholderText("Search teams, leagues, outcomes")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /trading terminal/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/minimum volume/i, { selector: "p" })).not.toBeInTheDocument();
@@ -104,7 +104,7 @@ describe("DashboardPage", () => {
 
   it("does not render every discovered market on first paint", async () => {
     render(await DashboardPage());
-    await waitFor(() => expect(screen.getByText(/Showing 100 sports markets with \$2K\+ volume/i)).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole("application", { name: /100 sports market bubble map/i })).toBeInTheDocument());
     expect(screen.queryByText("NBA test market 149")).not.toBeInTheDocument();
   });
 });

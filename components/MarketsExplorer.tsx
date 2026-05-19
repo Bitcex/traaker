@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { Search, Settings } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MarketBubbleMap } from "@/components/MarketBubbleMap";
@@ -9,19 +9,12 @@ import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscov
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const sports = ["All", "NBA", "NFL", "Soccer", "UFC", "Tennis"] as const;
-const statuses = ["all", "live", "upcoming"] as const;
-const minVolumeOptions = [
-  { label: "$2K+", value: 2000 },
-  { label: "$5K+", value: 5000 },
-  { label: "$10K+", value: 10000 },
-  { label: "$50K+", value: 50000 },
+const timeframes = ["1H", "1D", "1W", "1M"] as const;
+const rangeOptions = [
+  { label: "1-100", value: 100 },
+  { label: "1-250", value: 250 },
+  { label: "1-500", value: 500 },
 ] as const;
-const sortOptions: { label: string; value: MarketQuerySort }[] = [
-  { label: "Volume", value: "volume" },
-  { label: "Liquidity", value: "liquidity" },
-  { label: "Movement", value: "movement" },
-];
-const PAGE_LIMIT = 100;
 
 type MarketsResponse = MarketPage & {
   counts: SportsMarketDiscovery["counts"];
@@ -42,6 +35,7 @@ async function readMarketsResponse(response: Response): Promise<MarketsResponse>
 
 function buildMarketsUrl(params: {
   offset: number;
+  limit: number;
   search: string;
   sort: MarketQuerySort;
   sport: string;
@@ -49,7 +43,7 @@ function buildMarketsUrl(params: {
   minVolume: number;
 }) {
   const searchParams = new URLSearchParams({
-    limit: String(PAGE_LIMIT),
+    limit: String(params.limit),
     offset: String(params.offset),
     minVolume: String(params.minVolume),
     sort: params.sort,
@@ -70,16 +64,16 @@ export function MarketsExplorer({
   const firstRender = useRef(true);
   const requestIdRef = useRef(0);
   const [sport, setSport] = useState<(typeof sports)[number]>("All");
-  const [status, setStatus] = useState<MarketQueryStatus>("all");
-  const [sort, setSort] = useState<MarketQuerySort>("volume");
-  const [minVolume, setMinVolume] = useState(2000);
+  const status: MarketQueryStatus = "all";
+  const sort: MarketQuerySort = "volume";
+  const minVolume = 2000;
+  const [timeframe, setTimeframe] = useState<(typeof timeframes)[number]>("1D");
+  const [rangeLimit, setRangeLimit] = useState<(typeof rangeOptions)[number]["value"]>(100);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
-  const [page, setPage] = useState(initialPage);
   const [latestSource, setLatestSource] = useState(source);
   const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -92,14 +86,16 @@ export function MarketsExplorer({
 
     const controller = new AbortController();
     const requestId = ++requestIdRef.current;
-    setIsLoading(true);
-    setError(null);
-    fetch(buildMarketsUrl({ offset: 0, search: debouncedQuery, sort, sport, status, minVolume }), { signal: controller.signal })
+    queueMicrotask(() => {
+      if (controller.signal.aborted || requestId !== requestIdRef.current) return;
+      setIsLoading(true);
+      setError(null);
+    });
+    fetch(buildMarketsUrl({ offset: 0, limit: rangeLimit, search: debouncedQuery, sort, sport, status, minVolume }), { signal: controller.signal })
       .then(readMarketsResponse)
       .then((nextPage) => {
         if (requestId !== requestIdRef.current) return;
         setMarkets(nextPage.markets);
-        setPage(nextPage);
         setLatestSource(nextPage.source);
       })
       .catch((error) => {
@@ -113,88 +109,70 @@ export function MarketsExplorer({
       });
 
     return () => controller.abort();
-  }, [debouncedQuery, minVolume, sort, sport, status]);
-
-  const loadMore = async () => {
-    setIsLoadingMore(true);
-    setError(null);
-    try {
-      const response = await fetch(buildMarketsUrl({ offset: markets.length, search: debouncedQuery, sort, sport, status, minVolume }));
-      const nextPage = await readMarketsResponse(response);
-      setMarkets((current) => [...current, ...nextPage.markets]);
-      setPage(nextPage);
-      setLatestSource(nextPage.source);
-    } catch (error) {
-      console.error(error);
-      setError(error instanceof Error ? error.message : "Unable to load more Polymarket sports markets.");
-    } finally {
-      setIsLoadingMore(false);
-    }
-  };
+  }, [debouncedQuery, rangeLimit, sport]);
 
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
-  const selectedMinVolumeLabel = minVolumeOptions.find((option) => option.value === minVolume)?.label ?? "$2K+";
 
   return (
-    <section className="space-y-2">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-800 bg-slate-950/90 p-2">
-        <label className="relative block">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-          <Input className="h-9 w-[min(100vw-1.5rem,360px)] pl-9" onChange={(event) => setQuery(event.target.value)} placeholder="Search teams, leagues, outcomes" value={query} />
-        </label>
+    <section className="w-screen bg-[#050505]">
+      <div className="flex min-h-11 flex-wrap items-center gap-1 border-b border-zinc-800 bg-[#111113] px-2 py-1.5 text-sm shadow-lg shadow-black/30">
+        <div className="mr-2 flex items-center gap-2 px-1">
+          <span className="h-3 w-3 rounded-full bg-cyan-400 shadow-[0_0_18px_rgba(34,211,238,0.8)]" />
+          <span className="font-semibold tracking-wide text-zinc-100">Traak</span>
+        </div>
+        <div className="flex rounded-md border border-zinc-800 bg-black p-0.5">
+          {timeframes.map((item) => (
+            <button
+              className={`h-7 rounded px-2 text-xs font-semibold transition ${timeframe === item ? "bg-zinc-100 text-black" : "text-zinc-400 hover:text-zinc-100"}`}
+              key={item}
+              onClick={() => setTimeframe(item)}
+              type="button"
+            >
+              {item}
+            </button>
+          ))}
+        </div>
         <div className="flex flex-wrap gap-2">
           {sports.map((item) => (
-            <Button key={item} onClick={() => setSport(item)} size="sm" type="button" variant={sport === item ? "default" : "secondary"}>
+            <Button className="h-7 px-2 text-xs" key={item} onClick={() => setSport(item)} size="sm" type="button" variant={sport === item ? "default" : "ghost"}>
               {item}
             </Button>
           ))}
         </div>
-        {statuses.map((item) => (
-          <Button key={item} onClick={() => setStatus(item)} size="sm" type="button" variant={status === item ? "outline" : "ghost"}>
-            {item === "all" ? "Live + upcoming" : item}
-          </Button>
-        ))}
-        {sortOptions.map((item) => (
-          <Button key={item.value} onClick={() => setSort(item.value)} size="sm" type="button" variant={sort === item.value ? "outline" : "ghost"}>
-            {item.label}
-          </Button>
-        ))}
         <select
-          className="h-9 rounded-md border border-slate-700 bg-slate-950 px-3 text-sm text-slate-200"
-          aria-label="Minimum volume"
-          onChange={(event) => setMinVolume(Number(event.target.value))}
-          value={minVolume}
+          aria-label="Market range"
+          className="h-7 rounded-md border border-zinc-800 bg-black px-2 text-xs font-semibold text-zinc-100"
+          onChange={(event) => setRangeLimit(Number(event.target.value) as typeof rangeLimit)}
+          value={rangeLimit}
         >
-          {minVolumeOptions.map((option) => (
+          {rangeOptions.map((option) => (
             <option key={option.value} value={option.value}>
               {option.label}
             </option>
           ))}
         </select>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-sm text-slate-400">
-        <p>
-          Showing {markets.length} sports markets with {selectedMinVolumeLabel} volume.
-        </p>
-        <div className="flex items-center gap-2">
-          {isRefreshing ? <span className="text-xs text-cyan-200">Refreshing</span> : null}
-          {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock fallback</span> : null}
-        </div>
+        <label className="relative ml-auto block">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-zinc-500" />
+          <Input
+            className="h-7 w-[min(52vw,280px)] border-zinc-800 bg-black pl-8 text-xs"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search"
+            value={query}
+          />
+        </label>
+        {isRefreshing ? <span className="px-2 text-xs text-cyan-200">Refreshing</span> : null}
+        {latestSource === "mock" ? <span className="rounded-full border border-amber-500/40 px-2 py-0.5 text-xs text-amber-200">Mock</span> : null}
+        <Button aria-label="Settings" className="h-7 w-7" size="icon" type="button" variant="ghost">
+          <Settings className="h-4 w-4" />
+        </Button>
       </div>
 
       {error ? (
-        <div className="rounded-lg border border-rose-500/30 bg-rose-950/30 p-4 text-sm text-rose-100">{error}</div>
+        <div className="border-b border-rose-500/30 bg-rose-950/50 px-3 py-2 text-sm text-rose-100">{error}</div>
       ) : null}
 
-      <MarketBubbleMap
-        hasMore={page.hasMore && !isLoading}
-        isLoading={isInitialLoading}
-        isRefreshing={isRefreshing || isLoadingMore}
-        markets={markets}
-        onLoadMore={page.hasMore && !isLoading ? loadMore : undefined}
-      />
+      <MarketBubbleMap isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={markets} />
     </section>
   );
 }

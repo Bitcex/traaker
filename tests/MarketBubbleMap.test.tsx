@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { MarketBubbleMap, marketToBubbleNode } from "@/components/MarketBubbleMap";
+import { formatCents, getFavoredOutcome, MarketBubbleMap, marketToBubbleNode } from "@/components/MarketBubbleMap";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -74,16 +74,23 @@ describe("MarketBubbleMap", () => {
     const node = marketToBubbleNode(market);
     expect(node.primaryColor).toBe("#552583");
     expect(node.secondaryColor).toBe("#FDB927");
-    expect(node.ticker).toBe("LAKERS/CELTICS");
-    expect(node.val).toBeGreaterThan(100);
-    expect(node.val).toBeLessThanOrEqual(110);
+    expect(node.favoredOutcome).toBe("Lakers");
+    expect(node.favoredPrice).toBe(0.62);
+    expect(node.priceCents).toBe(62);
+    expect(node.val).toBeGreaterThan(80);
+    expect(node.val).toBeLessThanOrEqual(96);
     expect(node.marketUrl).toBe("/markets/market-1");
+  });
+
+  it("extracts the favored outcome and formats cents", () => {
+    expect(getFavoredOutcome({ ...market, yesPrice: 0.42, noPrice: 0.58 }).name).toBe("Celtics");
+    expect(formatCents(0.755)).toBe("76¢");
   });
 
   it("uses calmer graph physics controls", () => {
     render(<MarketBubbleMap markets={[market]} />);
 
-    expect(screen.getByTestId("graph-config")).toHaveTextContent("0.28|0.015|0.45|4.2");
+    expect(screen.getByTestId("graph-config")).toHaveTextContent("0.28|0.012|0.25|3.4");
   });
 
   it("shows a readable hover tooltip", () => {
@@ -94,6 +101,7 @@ describe("MarketBubbleMap", () => {
 
     expect(screen.getByText("Liquidity")).toBeInTheDocument();
     expect(screen.getByText("$75.0k")).toBeInTheDocument();
+    expect(screen.getByText("Lakers 62¢")).toBeInTheDocument();
     expect(screen.getByText("+3.0%")).toBeInTheDocument();
   });
 
@@ -105,7 +113,9 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).toBeInTheDocument();
     expect(screen.getByText("NBA")).toBeInTheDocument();
     expect(screen.getByText("$250k")).toBeInTheDocument();
-    expect(screen.getByText("62.0c")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Open market" })).toHaveAttribute("href", "/markets/market-1");
+    expect(screen.getAllByText("62¢").length).toBeGreaterThan(0);
+    expect(screen.getByText("Celtics")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Trade market" })).toHaveAttribute("href", "/trade/market-1");
+    expect(screen.getByRole("link", { name: "Open details" })).toHaveAttribute("href", "/markets/market-1");
   });
 });
