@@ -249,7 +249,7 @@ export function MarketsExplorer({
         </div>
       ) : null}
 
-      <MarketBubbleMap isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
+      <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
 
       {selectedSearchMarket ? (
         <div className="fixed inset-0 z-40 bg-black/10" onClick={() => setSelectedSearchMarket(null)}>

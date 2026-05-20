@@ -64,6 +64,8 @@ type BackgroundParticle = {
   color: string;
 };
 
+type BackgroundTheme = "neutral" | "soccer" | "basketball" | "football" | "tennis" | "ufc";
+
 export type BubbleBody = MarketBubbleNode & {
   radius: number;
   mass: number;
@@ -792,39 +794,152 @@ function resolveOverlapsBeforeDraw(bodies: BubbleBody[], width: number, height: 
   assertNoBubbleOverlapInDevelopment(bodies, padding);
 }
 
-function drawBackground(ctx: CanvasRenderingContext2D, particles: BackgroundParticle[], pixelRatio: number, isMobile: boolean) {
-  const width = ctx.canvas.width;
-  const height = ctx.canvas.height;
-  const particleLimit = Math.min(particles.length, isMobile ? 55 : pixelRatio > 1.5 ? 95 : 130);
-
+function drawFieldLines(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  color: string,
+  alpha: number,
+  variant: "soccer" | "basketball" | "football" | "tennis" | "ufc",
+) {
   ctx.save();
-  ctx.resetTransform();
-  ctx.fillStyle = "#050505";
-  ctx.fillRect(0, 0, width, height);
-  const shade = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.08, width / 2, height / 2, Math.max(width, height) * 0.72);
-  shade.addColorStop(0, "rgba(24, 24, 27, 0.28)");
-  shade.addColorStop(0.58, "rgba(3, 7, 18, 0.55)");
-  shade.addColorStop(1, "rgba(0, 0, 0, 0.94)");
-  ctx.fillStyle = shade;
-  ctx.fillRect(0, 0, width, height);
+  ctx.globalAlpha = alpha;
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1.2;
+  if (variant === "soccer") {
+    ctx.strokeRect(width * 0.12, height * 0.13, width * 0.76, height * 0.68);
+    ctx.beginPath();
+    ctx.moveTo(width * 0.5, height * 0.13);
+    ctx.lineTo(width * 0.5, height * 0.81);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(width * 0.5, height * 0.47, Math.min(width, height) * 0.13, 0, Math.PI * 2);
+    ctx.stroke();
+  } else if (variant === "basketball") {
+    ctx.beginPath();
+    ctx.arc(width * 0.5, height * 0.5, Math.min(width, height) * 0.26, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(width * 0.5, height * 0.5, Math.min(width, height) * 0.58, -Math.PI / 2, Math.PI / 2);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(width * 0.5, height * 0.5, Math.min(width, height) * 0.58, Math.PI / 2, Math.PI * 1.5);
+    ctx.stroke();
+  } else if (variant === "football") {
+    const left = width * 0.12;
+    const right = width * 0.88;
+    for (let y = height * 0.14; y < height * 0.86; y += height * 0.14) {
+      ctx.beginPath();
+      ctx.moveTo(left, y);
+      ctx.lineTo(right, y);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(width * 0.22, height * 0.5);
+    ctx.lineTo(width * 0.78, height * 0.5);
+    ctx.stroke();
+  } else if (variant === "tennis") {
+    ctx.strokeRect(width * 0.16, height * 0.2, width * 0.68, height * 0.56);
+    ctx.beginPath();
+    ctx.moveTo(width * 0.5, height * 0.2);
+    ctx.lineTo(width * 0.5, height * 0.76);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(width * 0.16, height * 0.5);
+    ctx.lineTo(width * 0.84, height * 0.5);
+    ctx.stroke();
+  } else if (variant === "ufc") {
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+    const r = Math.min(width, height) * 0.24;
+    ctx.beginPath();
+    for (let index = 0; index < 8; index += 1) {
+      const angle = Math.PI / 8 + (index * Math.PI * 2) / 8;
+      const px = cx + Math.cos(angle) * r;
+      const py = cy + Math.sin(angle) * r;
+      if (index === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
 
+function backgroundThemeForSport(sport?: string): BackgroundTheme {
+  const value = (sport ?? "").toLowerCase();
+  if (value === "all" || value === "") return "neutral";
+  if (value.includes("soccer") || value.includes("epl") || value.includes("uefa") || value.includes("champions")) return "soccer";
+  if (value.includes("nba") || value.includes("basketball")) return "basketball";
+  if (value.includes("nfl") || value.includes("football")) return "football";
+  if (value.includes("tennis")) return "tennis";
+  if (value.includes("ufc") || value.includes("mma")) return "ufc";
+  return "neutral";
+}
+
+function drawBackgroundTheme(
+  ctx: CanvasRenderingContext2D,
+  theme: BackgroundTheme,
+  width: number,
+  height: number,
+  alpha = 1,
+  pixelRatio = 1,
+  particles: BackgroundParticle[] = [],
+) {
+  ctx.save();
+  ctx.globalAlpha = alpha;
+
+  if (theme === "soccer") {
+    ctx.fillStyle = "#050b07";
+    ctx.fillRect(0, 0, width, height);
+    const field = ctx.createRadialGradient(width * 0.5, height * 0.44, Math.min(width, height) * 0.08, width * 0.5, height * 0.5, Math.max(width, height) * 0.78);
+    field.addColorStop(0, "rgba(34,197,94,0.07)");
+    field.addColorStop(1, "rgba(0,0,0,0.22)");
+    ctx.fillStyle = field;
+    ctx.fillRect(0, 0, width, height);
+    drawFieldLines(ctx, width, height, "rgba(186,255,200,0.16)", 0.13, "soccer");
+  } else if (theme === "basketball") {
+    ctx.fillStyle = "#090603";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "rgba(245,158,11,0.05)";
+    ctx.fillRect(0, 0, width, height);
+    drawFieldLines(ctx, width, height, "rgba(245,158,11,0.12)", 0.12, "basketball");
+  } else if (theme === "football") {
+    ctx.fillStyle = "#050a06";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "rgba(34,197,94,0.05)";
+    ctx.fillRect(0, 0, width, height);
+    drawFieldLines(ctx, width, height, "rgba(236,253,245,0.14)", 0.14, "football");
+  } else if (theme === "tennis") {
+    ctx.fillStyle = "#050a09";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "rgba(187,247,208,0.04)";
+    ctx.fillRect(0, 0, width, height);
+    drawFieldLines(ctx, width, height, "rgba(187,247,208,0.16)", 0.14, "tennis");
+  } else if (theme === "ufc") {
+    ctx.fillStyle = "#040404";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    ctx.fillRect(0, 0, width, height);
+    drawFieldLines(ctx, width, height, "rgba(255,255,255,0.12)", 0.14, "ufc");
+  } else {
+    ctx.fillStyle = "#050505";
+    ctx.fillRect(0, 0, width, height);
+    ctx.fillStyle = "rgba(31,41,55,0.24)";
+    ctx.fillRect(0, 0, width, height);
+  }
+
+  const particleLimit = Math.min(particles.length, pixelRatio > 1.5 ? 70 : 88);
   for (const particle of particles.slice(0, particleLimit)) {
-    ctx.globalAlpha = particle.alpha;
+    ctx.globalAlpha = particle.alpha * alpha * (theme === "neutral" ? 1 : 0.68);
     ctx.fillStyle = particle.color;
     ctx.shadowColor = particle.color;
-    ctx.shadowBlur = particle.size * 4;
+    ctx.shadowBlur = particle.size * 3;
     ctx.beginPath();
     ctx.arc(safeCoordinate(particle.x * width), safeCoordinate(particle.y * height), safeRadius(particle.size), 0, Math.PI * 2);
     ctx.fill();
   }
   ctx.shadowBlur = 0;
-  ctx.globalAlpha = 1;
-
-  const vignette = ctx.createRadialGradient(width / 2, height / 2, Math.min(width, height) * 0.38, width / 2, height / 2, Math.max(width, height) * 0.76);
-  vignette.addColorStop(0, "rgba(0,0,0,0)");
-  vignette.addColorStop(1, "rgba(0,0,0,0.55)");
-  ctx.fillStyle = vignette;
-  ctx.fillRect(0, 0, width, height);
   ctx.restore();
 }
 
@@ -1173,7 +1288,10 @@ function drawClippedImageAsset(
   ctx.clip();
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = "high";
-  ctx.drawImage(drawable, -radius, -radius, radius * 2, radius * 2);
+  const coverSize = radius * 2.08;
+  const offsetX = -coverSize / 2;
+  const offsetY = -coverSize / 2 - radius * 0.035;
+  ctx.drawImage(drawable, offsetX, offsetY, coverSize, coverSize);
   ctx.restore();
   return true;
 }
@@ -1628,10 +1746,12 @@ export function MarketBubbleMap({
   markets,
   isLoading = false,
   isRefreshing = false,
+  activeSport,
 }: {
   markets: TerminalMarket[];
   isLoading?: boolean;
   isRefreshing?: boolean;
+  activeSport?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -1652,6 +1772,8 @@ export function MarketBubbleMap({
   const isMobile = dimensions.width < 640;
   const bodyCount = nodes.length;
   const selectedMarket = useMemo(() => selectedPanelSnapshot ?? nodes.find((node) => node.id === selectedMarketId) ?? null, [nodes, selectedMarketId, selectedPanelSnapshot]);
+  const backgroundTheme = useMemo(() => backgroundThemeForSport(activeSport ?? nodes[0]?.sport), [activeSport, nodes]);
+  const backgroundTransitionRef = useRef({ previous: backgroundTheme as BackgroundTheme | null, current: backgroundTheme, startedAt: Date.now() });
 
   useEffect(() => {
     if (isLoading) {
@@ -1661,6 +1783,13 @@ export function MarketBubbleMap({
     const timer = window.setTimeout(() => setLoadingVisible(false), 300);
     return () => window.clearTimeout(timer);
   }, [isLoading]);
+
+  useEffect(() => {
+    const current = backgroundTransitionRef.current.current;
+    if (current !== backgroundTheme) {
+      backgroundTransitionRef.current = { previous: current, current: backgroundTheme, startedAt: Date.now() };
+    }
+  }, [backgroundTheme]);
 
   useEffect(() => {
     const ids = nodes.map((node) => node.id).join("|");
@@ -1718,7 +1847,12 @@ export function MarketBubbleMap({
 
     const drawFrame = () => {
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-      drawBackground(context, particles, pixelRatio, isMobile);
+      const transition = backgroundTransitionRef.current;
+      const fadeProgress = transition.previous && transition.previous !== transition.current ? Math.min(1, (Date.now() - transition.startedAt) / 420) : 1;
+      if (transition.previous && transition.previous !== transition.current) {
+        drawBackgroundTheme(context, transition.previous, dimensions.width, dimensions.height, 1 - fadeProgress, pixelRatio, particles);
+      }
+      drawBackgroundTheme(context, transition.current, dimensions.width, dimensions.height, transition.previous && transition.previous !== transition.current ? fadeProgress : 1, pixelRatio, particles);
       tickBubblePhysics(bodiesRef.current, dimensions.width, dimensions.height, 1, isMobile);
       resolveOverlapsBeforeDraw(bodiesRef.current, dimensions.width, dimensions.height, isMobile);
       const hoveredId = hoveredMarket?.id;
