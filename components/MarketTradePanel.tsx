@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ExternalLink, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { TradeTicket } from "@/components/trading/TradeTicket";
@@ -24,6 +24,11 @@ export function MarketTradePanel({
   onClose: () => void;
 }) {
   const [side, setSide] = useState<"Buy" | "Sell">("Buy");
+  const initialOutcomePricesRef = useRef(new Map(market.outcomes.map((outcome) => [outcome.name, outcome.price])));
+  const hasLivePriceUpdate = useMemo(
+    () => market.outcomes.some((outcome) => Math.abs(outcome.price - (initialOutcomePricesRef.current.get(outcome.name) ?? outcome.price)) >= 0.005),
+    [market.outcomes],
+  );
   const polymarketUrl = market.polymarketUrl ?? market.marketUrl;
 
   return (
@@ -94,7 +99,10 @@ export function MarketTradePanel({
       </div>
 
       <div className="mt-5 rounded-md border border-zinc-800 bg-zinc-950/85 p-3">
-        <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
+        <div className="flex items-center justify-between gap-3">
+          <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
+          {hasLivePriceUpdate ? <span className="text-xs font-medium text-cyan-200/80">Live price updated</span> : null}
+        </div>
         <div className="mt-3 space-y-2">
           {market.outcomes.map((outcome) => {
             const isFavored = outcome.name === market.favoredOutcome;

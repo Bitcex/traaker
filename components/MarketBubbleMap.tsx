@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
-import { marketStore, useMarketStore, type MarketValueState } from "@/app/store/marketStore";
+import { marketStore, type MarketValueState } from "@/app/store/marketStore";
 import { hasUsefulFavoredPrice, isUsefulFavoredPrice } from "@/lib/polymarket/marketDisplay";
 import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
@@ -83,23 +83,15 @@ export type BubbleVisualSmoothingState = {
   lastSignature: string;
 };
 
-type PendingVisualUpdate = {
-  market: TerminalMarket;
-  index: number;
-  value?: MarketValueState;
-};
-
 const DESKTOP_COLLISION_PADDING = 6;
 const MOBILE_COLLISION_PADDING = 4;
 const MAX_BUBBLE_SPEED = 0.35;
 const VELOCITY_DAMPING = 0.995;
 const WALL_BOUNCE = 0.42;
 const COLLISION_BOUNCE = 0.18;
-const VISUAL_UPDATE_BATCH_MS = 600;
 const PRICE_TWEEN_MS = 420;
-const MIN_VISUAL_PRICE_DELTA = 0.005;
-const MAX_VISUAL_UPDATE_HZ_MS = 500;
 const PULSE_FADE_MS = 1_000;
+const PANEL_LIVE_PRICE_INTERVAL_MS = 3_000;
 
 const money = (value: number) => {
   const numeric = Number.isFinite(value) ? Math.max(0, value) : 0;
@@ -529,11 +521,16 @@ function outcomePriceForName(outcomes: MarketOutcomeOption[], outcomeName: strin
   return outcomes.find((outcome) => outcome.name === outcomeName)?.price ?? fallback;
 }
 
-function liveOutcomeOptionsForBody(body: BubbleBody, market: TerminalMarket) {
-  const liveByName = new Map(getMarketOutcomes(market as RawOutcomeMarket).map((outcome) => [outcome.name, outcome]));
-  return body.outcomes.map((outcome) => {
-    const liveOutcome = liveByName.get(outcome.name);
-    const price = liveOutcome?.price ?? outcome.price;
+function outcomeKeyForName(market: TerminalMarket, outcomeName: string) {
+  if (market.outcomes.yes === outcomeName || outcomeName.toLowerCase() === "yes") return "yes";
+  if (market.outcomes.no === outcomeName || outcomeName.toLowerCase() === "no") return "no";
+  return null;
+}
+
+function liveOutcomeOptionsForSnapshot(outcomes: MarketOutcomeOption[], market: TerminalMarket) {
+  return outcomes.map((outcome) => {
+    const key = outcomeKeyForName(market, outcome.name);
+    const price = key === "yes" ? market.yesPrice : key === "no" ? market.noPrice : outcome.price;
     return {
       ...outcome,
       price,
@@ -542,17 +539,12 @@ function liveOutcomeOptionsForBody(body: BubbleBody, market: TerminalMarket) {
   });
 }
 
-function livePriceForStableOutcome(body: BubbleBody, market: TerminalMarket) {
-  return outcomePriceForName(liveOutcomeOptionsForBody(body, market), body.favoredOutcome, body.favoredPrice);
+function liveOutcomeOptionsForBody(body: BubbleBody, market: TerminalMarket) {
+  return liveOutcomeOptionsForSnapshot(body.outcomes, market);
 }
 
-function visualSignature(body: BubbleBody, stablePrice: number, market: TerminalMarket, value?: MarketValueState) {
-  return [
-    body.favoredOutcome,
-    stablePrice.toFixed(4),
-    (value?.movement ?? market.priceMove24h).toFixed(4),
-    (value?.lastUpdateTimestamp ?? 0).toString(),
-  ].join("|");
+function livePriceForStableOutcome(body: BubbleBody, market: TerminalMarket) {
+  return outcomePriceForName(liveOutcomeOptionsForBody(body, market), body.favoredOutcome, body.favoredPrice);
 }
 
 export function createBubbleVisualSmoothingState(body: Pick<BubbleBody, "favoredOutcome" | "favoredPrice">, now = Date.now()): BubbleVisualSmoothingState {
@@ -586,19 +578,6 @@ export function advanceBubbleVisualTween(body: BubbleBody, state: BubbleVisualSm
   }
 }
 
-function applyMarketValueToBodyImmediate(body: BubbleBody, market: TerminalMarket, index: number, value?: MarketValueState) {
-  const visual = marketToBubbleNode(market, index);
-  body.volume = value?.volume ?? visual.volume;
-  body.liquidity = value?.liquidity ?? visual.liquidity;
-  body.priceChange = value?.movement ?? visual.priceChange;
-  body.glowColor = visual.glowColor;
-  body.outcomes = liveOutcomeOptionsForBody(body, market);
-  body.bestBid = value?.bestBid ?? visual.bestBid;
-  body.bestAsk = value?.bestAsk ?? visual.bestAsk;
-  body.trendScore = visual.trendScore;
-  body.isTrending = visual.isTrending;
-}
-
 export function applySmoothedMarketValueToBody(
   body: BubbleBody,
   market: TerminalMarket,
@@ -607,69 +586,20 @@ export function applySmoothedMarketValueToBody(
   value?: MarketValueState,
   now = Date.now(),
 ) {
-  const activeRangeWarning = !hasUsefulFavoredPrice(market);
-  body.activeRangeWarning = activeRangeWarning;
-  if (activeRangeWarning) {
-    body.isLiveHidden = true;
-    return true;
-  }
+  void index;
+  void smoothingState;
+  void value;
+  void now;
+  body.activeRangeWarning = !hasUsefulFavoredPrice(market) || !isUsefulFavoredPrice(livePriceForStableOutcome(body, market));
   body.isLiveHidden = false;
-  const timestamp = value?.lastUpdateTimestamp ?? now;
-  const stableTargetPrice = livePriceForStableOutcome(body, market);
-  if (!isUsefulFavoredPrice(stableTargetPrice)) {
-    body.activeRangeWarning = true;
-    body.isLiveHidden = true;
-    return true;
-  }
-  const signature = visualSignature(body, stableTargetPrice, market, value);
-  const currentTarget = smoothingState.priceTarget;
-  const priceDelta = Math.abs(stableTargetPrice - currentTarget);
-  const duplicate = signature === smoothingState.lastSignature || (timestamp <= smoothingState.lastReceivedTimestamp && priceDelta < MIN_VISUAL_PRICE_DELTA);
-  const capped = now - smoothingState.lastVisualAppliedAt < MAX_VISUAL_UPDATE_HZ_MS;
-  const meaningfulMovement = Math.abs((value?.movement ?? market.priceMove24h) - body.priceChange) >= 0.001;
-
-  if ((duplicate || priceDelta < MIN_VISUAL_PRICE_DELTA) && !meaningfulMovement) {
-    smoothingState.lastReceivedTimestamp = Math.max(smoothingState.lastReceivedTimestamp, timestamp);
-    return false;
-  }
-  if (capped) return false;
-
-  const previousTarget = smoothingState.priceTarget;
-  const previousDisplayedPrice = body.favoredPrice;
-  applyMarketValueToBodyImmediate(body, market, index, value);
-  smoothingState.pendingOutcome = null;
-  smoothingState.pendingOutcomeSince = 0;
-  body.favoredOutcome = smoothingState.displayedOutcome;
-  body.favoredPrice = previousDisplayedPrice;
   body.priceCents = Math.round(clamp01(body.favoredPrice) * 100);
-
-  if (Math.abs(stableTargetPrice - previousTarget) >= MIN_VISUAL_PRICE_DELTA) {
-    smoothingState.priceFrom = body.favoredPrice;
-    smoothingState.priceTarget = stableTargetPrice;
-    smoothingState.priceStartedAt = now;
-    smoothingState.priceDuration = PRICE_TWEEN_MS;
-    body.visualPulseDirection = stableTargetPrice > previousTarget ? "up" : "down";
-    body.visualPulseStartedAt = now;
-  }
-
-  body.priceChange = value?.movement ?? market.priceMove24h;
-  smoothingState.lastVisualAppliedAt = now;
-  smoothingState.lastReceivedTimestamp = Math.max(smoothingState.lastReceivedTimestamp, timestamp);
-  smoothingState.lastSignature = signature;
-  return true;
-}
-
-function advanceBubbleVisualTweens(bodies: BubbleBody[], states: Map<string, BubbleVisualSmoothingState>, now = Date.now()) {
-  for (const body of bodies) {
-    const state = states.get(body.id);
-    if (state) advanceBubbleVisualTween(body, state, now);
-  }
+  return false;
 }
 
 function mergeStablePanelMarket(stable: MarketBubbleNode | null, liveMarket: TerminalMarket | null) {
   if (!stable) return null;
   if (!liveMarket) return stable;
-  const liveOutcomes = liveOutcomeOptionsForBody(stable as BubbleBody, liveMarket);
+  const liveOutcomes = liveOutcomeOptionsForSnapshot(stable.outcomes, liveMarket);
   const stableFavoredPrice = outcomePriceForName(liveOutcomes, stable.favoredOutcome, stable.favoredPrice);
   return {
     ...stable,
@@ -1359,12 +1289,10 @@ export function MarketBubbleMap({
   const bodiesRef = useRef<BubbleBody[]>([]);
   const layoutRef = useRef({ ids: "", width: 0, height: 0, isMobile: false });
   const visualStatesRef = useRef(new Map<string, BubbleVisualSmoothingState>());
-  const pendingVisualUpdatesRef = useRef(new Map<string, PendingVisualUpdate>());
-  const visualBatchTimerRef = useRef<number | null>(null);
-  const visualFlushFrameRef = useRef<number | null>(null);
   const [introStartedAt] = useState(() => Date.now());
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [selectedPanelSnapshot, setSelectedPanelSnapshot] = useState<MarketBubbleNode | null>(null);
+  const [selectedPanelLiveMarket, setSelectedPanelLiveMarket] = useState<TerminalMarket | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const [dimensions, setDimensions] = useState({ width: 1200, height: 680 });
@@ -1373,10 +1301,9 @@ export function MarketBubbleMap({
   const particles = useMemo(() => createBackgroundParticles(), []);
   const isMobile = dimensions.width < 640;
   const bodyCount = nodes.length;
-  const selectedStoreMarket = useMarketStore((snapshot) => (selectedMarketId ? snapshot.marketsById[selectedMarketId] ?? null : null));
   const selectedMarket = useMemo(
-    () => mergeStablePanelMarket(selectedPanelSnapshot ?? nodes.find((node) => node.id === selectedMarketId) ?? null, selectedStoreMarket),
-    [nodes, selectedMarketId, selectedPanelSnapshot, selectedStoreMarket],
+    () => mergeStablePanelMarket(selectedPanelSnapshot ?? nodes.find((node) => node.id === selectedMarketId) ?? null, selectedPanelLiveMarket),
+    [nodes, selectedMarketId, selectedPanelLiveMarket, selectedPanelSnapshot],
   );
 
   useEffect(() => {
@@ -1403,52 +1330,16 @@ export function MarketBubbleMap({
   }, [dimensions.height, dimensions.width, isMobile, nodes]);
 
   useEffect(() => {
-    const visibleIndexById = new Map(nodes.map((node, index) => [node.id, index]));
-    const scheduleVisualFlush = () => {
-      if (visualBatchTimerRef.current !== null) return;
-      visualBatchTimerRef.current = window.setTimeout(() => {
-        visualBatchTimerRef.current = null;
-        if (visualFlushFrameRef.current !== null) return;
-        visualFlushFrameRef.current = window.requestAnimationFrame(() => {
-          visualFlushFrameRef.current = null;
-          const pending = new Map(pendingVisualUpdatesRef.current);
-          pendingVisualUpdatesRef.current.clear();
-          const now = Date.now();
-          for (const body of bodiesRef.current) {
-            const update = pending.get(body.id);
-            if (!update) continue;
-            const state = visualStatesRef.current.get(body.id) ?? createBubbleVisualSmoothingState(body, now);
-            visualStatesRef.current.set(body.id, state);
-            const applied = applySmoothedMarketValueToBody(body, update.market, update.index, state, update.value, now);
-            if (!applied) {
-              pendingVisualUpdatesRef.current.set(body.id, update);
-            }
-          }
-          if (pendingVisualUpdatesRef.current.size > 0) scheduleVisualFlush();
-        });
-      }, VISUAL_UPDATE_BATCH_MS);
+    if (!selectedMarketId) {
+      setSelectedPanelLiveMarket(null);
+      return;
+    }
+    const pullLatestPanelMarket = () => {
+      setSelectedPanelLiveMarket(marketStore.getState().marketsById[selectedMarketId] ?? null);
     };
-
-    const unsubscribe = marketStore.subscribe(() => {
-      const snapshot = marketStore.getState();
-      for (const body of bodiesRef.current) {
-        const index = visibleIndexById.get(body.id);
-        const market = snapshot.marketsById[body.id];
-        if (index === undefined || !market) continue;
-        pendingVisualUpdatesRef.current.set(body.id, { market, index, value: snapshot.marketValuesById[body.id] });
-      }
-      if (pendingVisualUpdatesRef.current.size > 0) scheduleVisualFlush();
-    });
-
-    return () => {
-      unsubscribe();
-      if (visualBatchTimerRef.current !== null) window.clearTimeout(visualBatchTimerRef.current);
-      if (visualFlushFrameRef.current !== null) window.cancelAnimationFrame(visualFlushFrameRef.current);
-      visualBatchTimerRef.current = null;
-      visualFlushFrameRef.current = null;
-      pendingVisualUpdatesRef.current.clear();
-    };
-  }, [nodes]);
+    const timer = window.setInterval(pullLatestPanelMarket, PANEL_LIVE_PRICE_INTERVAL_MS);
+    return () => window.clearInterval(timer);
+  }, [selectedMarketId]);
 
   useEffect(() => {
     const node = containerRef.current;
@@ -1485,18 +1376,16 @@ export function MarketBubbleMap({
       context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       drawBackground(context, particles, pixelRatio, isMobile);
       tickBubblePhysics(bodiesRef.current, dimensions.width, dimensions.height, 1, isMobile);
-      advanceBubbleVisualTweens(bodiesRef.current, visualStatesRef.current);
       resolveOverlapsBeforeDraw(bodiesRef.current, dimensions.width, dimensions.height, isMobile);
       const hoveredId = hoveredMarket?.id;
       for (const node of bodiesRef.current) {
-        if (node.isLiveHidden) continue;
         if (node.x + node.radius < -80 || node.x - node.radius > dimensions.width + 80 || node.y + node.radius < -80 || node.y - node.radius > dimensions.height + 80) {
           continue;
         }
         if (node.id !== hoveredId) drawBubble(node, context, 1, { hoveredId, introStartedAt, isMobile });
       }
       const hoveredNode = hoveredId ? bodiesRef.current.find((node) => node.id === hoveredId) : null;
-      if (hoveredNode && !hoveredNode.isLiveHidden) drawBubble(hoveredNode, context, 1, { hoveredId, introStartedAt, isMobile, priorityPass: true });
+      if (hoveredNode) drawBubble(hoveredNode, context, 1, { hoveredId, introStartedAt, isMobile, priorityPass: true });
       frameRef.current = window.requestAnimationFrame(drawFrame);
     };
 
@@ -1512,6 +1401,7 @@ export function MarketBubbleMap({
       if (event.key === "Escape") {
         setSelectedMarketId(null);
         setSelectedPanelSnapshot(null);
+        setSelectedPanelLiveMarket(null);
         marketStore.setSelectedMarketId(null);
       }
     };
@@ -1524,7 +1414,6 @@ export function MarketBubbleMap({
       let bestNode: MarketBubbleNode | null = null;
       let bestDistance = Number.POSITIVE_INFINITY;
       for (const node of bodiesRef.current) {
-        if (node.isLiveHidden) continue;
         const dx = x - node.x;
         const dy = y - node.y;
         const distance = Math.hypot(dx, dy);
@@ -1561,6 +1450,7 @@ export function MarketBubbleMap({
       if (node) {
         setSelectedMarketId(node.id);
         setSelectedPanelSnapshot({ ...node, outcomes: node.outcomes.map((outcome) => ({ ...outcome })) });
+        setSelectedPanelLiveMarket(null);
         marketStore.setSelectedMarketId(node.id);
       }
     },
@@ -1643,14 +1533,17 @@ export function MarketBubbleMap({
               event.stopPropagation();
               setSelectedMarketId(null);
               setSelectedPanelSnapshot(null);
+              setSelectedPanelLiveMarket(null);
               marketStore.setSelectedMarketId(null);
             }}
           />
           <MarketTradePanel
+            key={selectedMarket.id}
             market={selectedMarket}
             onClose={() => {
               setSelectedMarketId(null);
               setSelectedPanelSnapshot(null);
+              setSelectedPanelLiveMarket(null);
               marketStore.setSelectedMarketId(null);
             }}
           />

@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { marketStore } from "@/app/store/marketStore";
 import {
-  cleanOutcomeName,
-  advanceBubbleVisualTween,
   applySmoothedMarketValueToBody,
+  cleanOutcomeName,
   createBubbleBodies,
   createBubbleVisualSmoothingState,
   formatCents,
@@ -104,6 +104,7 @@ describe("MarketBubbleMap", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
+    marketStore.reset();
   });
 
   it("converts markets into team-colored bubble nodes", () => {
@@ -283,21 +284,16 @@ describe("MarketBubbleMap", () => {
     expect(merged.radius).toBe(previous[0].radius);
   });
 
-  it("smooths visible price changes instead of jumping immediately", () => {
+  it("freezes bubble displayed price until manual refresh", () => {
     const [body] = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
     const state = createBubbleVisualSmoothingState(body, 1_000);
 
     const applied = applySmoothedMarketValueToBody(body, { ...market, yesPrice: 0.71, noPrice: 0.29 }, 0, state, undefined, 1_000);
 
-    expect(applied).toBe(true);
+    expect(applied).toBe(false);
     expect(body.favoredPrice).toBe(0.62);
-    expect(state.priceTarget).toBe(0.71);
-    expect(body.visualPulseDirection).toBe("up");
-
-    advanceBubbleVisualTween(body, state, 1_210);
-
-    expect(body.favoredPrice).toBeGreaterThan(0.62);
-    expect(body.favoredPrice).toBeLessThan(0.71);
+    expect(state.priceTarget).toBe(0.62);
+    expect(body.visualPulseDirection).toBeUndefined();
   });
 
   it("ignores tiny duplicate visual price updates", () => {
@@ -325,16 +321,24 @@ describe("MarketBubbleMap", () => {
     expect(body.favoredOutcome).toBe("Lakers");
   });
 
-  it("hides a visible bubble when live price leaves the active range", () => {
+  it("does not remove a visible bubble when live price leaves the active range", () => {
     const [body] = createBubbleBodies([marketToBubbleNode(market)], 1200, 680, false);
     const state = createBubbleVisualSmoothingState(body, 10_000);
 
     const applied = applySmoothedMarketValueToBody(body, { ...market, yesPrice: 0.99, noPrice: 0.01 }, 0, state, undefined, 10_000);
 
-    expect(applied).toBe(true);
-    expect(body.isLiveHidden).toBe(true);
+    expect(applied).toBe(false);
+    expect(body.isLiveHidden).toBe(false);
     expect(body.activeRangeWarning).toBe(true);
     expect(body.favoredPrice).not.toBe(0.99);
+  });
+
+  it("live store updates do not remove a rendered bubble crossing 95 cents", () => {
+    render(<MarketBubbleMap markets={[market]} />);
+
+    marketStore.setMarketSnapshots([{ ...market, yesPrice: 0.99, noPrice: 0.01 }], { replace: true });
+
+    expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
   });
 
   it("trade panel keeps stable favored highlight and warns when market leaves active range", () => {
@@ -352,6 +356,32 @@ describe("MarketBubbleMap", () => {
     expect(screen.getByText("Market moved outside active range")).toBeInTheDocument();
     expect(screen.getByText("Favored:").parentElement).toHaveTextContent("Lakers");
     expect(screen.getByRole("button", { name: /lakers/i })).toHaveClass("border-cyan-400");
+  });
+
+  it("trade panel keeps selected outcome and row order across price updates", () => {
+    const panelMarket = marketToBubbleNode(market);
+    const { rerender } = render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /celtics/i }));
+    expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+
+    rerender(
+      <MarketTradePanel
+        market={{
+          ...panelMarket,
+          outcomes: [
+            { name: "Lakers", price: 0.59, priceCents: 59 },
+            { name: "Celtics", price: 0.41, priceCents: 41 },
+          ],
+        }}
+        onClose={vi.fn()}
+      />,
+    );
+
+    const lakers = screen.getByRole("button", { name: /lakers/i });
+    const celtics = screen.getByRole("button", { name: /celtics/i });
+    expect(lakers.compareDocumentPosition(celtics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(celtics).toHaveClass("border-cyan-400");
   });
 
   it("physics keeps moving bubbles inside bounds without resizing", () => {

@@ -241,4 +241,34 @@ describe("MarketsExplorer", () => {
     await waitFor(() => expect(marketStore.getState().marketsById["market-1"].noPrice).toBe(0.52));
     expect(getFavoredOutcome(marketStore.getState().marketsById["market-1"]).price).toBe(0.52);
   });
+
+  it("live updates do not remove or replace visible bubbles that cross 95 cents", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ ...initialPage, counts, countsLoading: false, source: "polymarket" }), { status: 200 })));
+    render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
+
+    expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
+    marketStore.applyMarketSnapshots([{ ...market, yesPrice: 0.99, noPrice: 0.01 }]);
+
+    expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
+  });
+
+  it("manual refresh removes markets that are now outside active odds range", async () => {
+    let requestCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        requestCount += 1;
+        const markets = requestCount >= 2 ? [{ ...market, yesPrice: 0.99, noPrice: 0.01 }] : [market];
+        return new Response(JSON.stringify({ ...initialPage, markets, counts, countsLoading: false, source: "polymarket" }), { status: 200 });
+      }),
+    );
+
+    render(<MarketsExplorer initialPage={{ ...initialPage, markets: [market] }} source="polymarket" />);
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh markets" }));
+
+    await waitFor(() => expect(screen.getByRole("application", { name: /0 sports market bubble map/i })).toBeInTheDocument());
+  });
 });
