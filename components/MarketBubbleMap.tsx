@@ -112,6 +112,7 @@ type LogoCacheEntry = {
   failed: boolean;
 };
 const logoCache = new Map<string, LogoCacheEntry>();
+const imageAssetCache = new Map<string, LogoCacheEntry>();
 
 function safeNumber(value: number, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
@@ -238,6 +239,37 @@ function getLogoAsset(logoUrl?: string) {
   };
   image.src = logoUrl;
   logoCache.set(logoUrl, entry);
+  return entry;
+}
+
+function getImageAsset(src?: string) {
+  if (!src || typeof window === "undefined") return null;
+  const cached = imageAssetCache.get(src);
+  if (cached) return cached;
+  const image = new Image();
+  image.crossOrigin = "anonymous";
+  const entry: LogoCacheEntry = { image, bitmapLoading: false, failed: false };
+  image.decoding = "async";
+  image.loading = "eager";
+  image.onload = () => {
+    if (entry.bitmapLoading || entry.bitmap || !("createImageBitmap" in window)) return;
+    entry.bitmapLoading = true;
+    void createImageBitmap(image)
+      .then((bitmap) => {
+        entry.bitmap = bitmap;
+      })
+      .catch(() => {
+        entry.failed = true;
+      })
+      .finally(() => {
+        entry.bitmapLoading = false;
+      });
+  };
+  image.onerror = () => {
+    entry.failed = true;
+  };
+  image.src = src;
+  imageAssetCache.set(src, entry);
   return entry;
 }
 
@@ -1120,6 +1152,32 @@ function drawLabelPlate(ctx: CanvasRenderingContext2D, x: number, y: number, rad
   ctx.restore();
 }
 
+function drawClippedImageAsset(
+  ctx: CanvasRenderingContext2D,
+  src: string,
+  x: number,
+  y: number,
+  radius: number,
+  rotation = 0,
+  opacity = 1,
+) {
+  const asset = getImageAsset(src);
+  const drawable = asset?.bitmap ?? (asset?.image.complete && asset.image.naturalWidth > 0 ? asset.image : null);
+  if (!drawable) return false;
+  ctx.save();
+  ctx.globalAlpha *= opacity;
+  ctx.translate(x, y);
+  if (rotation !== 0) ctx.rotate(rotation);
+  ctx.beginPath();
+  ctx.arc(0, 0, safeRadius(radius), 0, Math.PI * 2);
+  ctx.clip();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = "high";
+  ctx.drawImage(drawable, -radius, -radius, radius * 2, radius * 2);
+  ctx.restore();
+  return true;
+}
+
 function drawFallbackGlassBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number) {
   const fill = ctx.createRadialGradient(x - radius * 0.25, y - radius * 0.34, safeRadius(radius * 0.12), x, y, radius);
   fill.addColorStop(0, `${node.primaryColor}66`);
@@ -1129,6 +1187,22 @@ function drawFallbackGlassBubble(ctx: CanvasRenderingContext2D, node: MarketBubb
   ctx.beginPath();
   ctx.arc(x, y, safeRadius(radius), 0, Math.PI * 2);
   ctx.fill();
+}
+
+const SOCCER_ASSETS = ["/sport-balls/soccer-red.png", "/sport-balls/soccer-blue.png", "/sport-balls/soccer-yellow.png"];
+
+function soccerAssetForNode(node: MarketBubbleNode) {
+  return SOCCER_ASSETS[hashVariant(node, "soccer-asset", SOCCER_ASSETS.length)];
+}
+
+function sportAssetForNode(node: MarketBubbleNode) {
+  const kind = sportBubbleKind(node);
+  if (kind === "soccer") return soccerAssetForNode(node);
+  if (kind === "basketball") return "/sport-balls/basketball.png";
+  if (kind === "football") return "/sport-balls/football.png";
+  if (kind === "tennis") return "/sport-balls/tennis-ball.png";
+  if (kind === "baseball") return "/sport-balls/baseball.png";
+  return null;
 }
 
 function drawSoccerBall(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, variant: SoccerBallVariant) {
@@ -1373,6 +1447,10 @@ function drawF1Tire(ctx: CanvasRenderingContext2D, x: number, y: number, radius:
 }
 
 function drawSportBubble(ctx: CanvasRenderingContext2D, node: MarketBubbleNode, x: number, y: number, radius: number) {
+  const asset = sportAssetForNode(node);
+  if (asset && drawClippedImageAsset(ctx, asset, x, y, radius, 0, 1)) {
+    return;
+  }
   const soccer = soccerBallVariant(node);
   const basketball = basketballVariant(node);
   const baseball = baseballVariant(node);
@@ -1532,12 +1610,9 @@ function TraakLoadingOverlay() {
           className="absolute h-28 w-28 rounded-full border border-cyan-300/15 shadow-[0_0_52px_rgba(34,211,238,0.18)]"
           style={{ animation: "traak-breathe 2.8s ease-in-out infinite reverse" }}
         />
-        <img
-          alt="Traak logo"
-          className="relative h-28 w-28 select-none object-contain"
-          src="/polytraak.jpg"
-          style={{ animation: "traak-breathe 2.4s ease-in-out infinite" }}
-        />
+        <div className="relative h-28 w-28 overflow-hidden rounded-full shadow-[0_0_44px_rgba(34,211,238,0.16)]">
+          <img alt="Traak logo" className="h-full w-full select-none object-cover" src="/polytraak.jpg" style={{ animation: "traak-breathe 2.4s ease-in-out infinite" }} />
+        </div>
       </div>
     </div>
   );
