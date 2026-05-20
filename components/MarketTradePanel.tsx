@@ -17,6 +17,8 @@ const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Num
 const formatMovement = (value: number) => `${value >= 0 ? "+" : ""}${(Number.isFinite(value) ? value * 100 : 0).toFixed(1)}%`;
 const QUOTE_REFRESH_MS = 10_000;
 const QUOTE_TICK_MS = 250;
+const QUOTE_RETRY_MS = 3_000;
+type QuoteStatus = "healthy" | "refreshing" | "stale";
 
 export function MarketTradePanel({
   market,
@@ -29,65 +31,95 @@ export function MarketTradePanel({
 }) {
   const [side, setSide] = useState<"Buy" | "Sell">("Buy");
   const [displayMarket, setDisplayMarket] = useState(market);
-  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [quoteUpdatedAt, setQuoteUpdatedAt] = useState<number | null>(null);
   const [quoteNow, setQuoteNow] = useState(() => Date.now());
   const [quoteExpiresAt, setQuoteExpiresAt] = useState(() => Date.now() + QUOTE_REFRESH_MS);
-  const [quoteStale, setQuoteStale] = useState(false);
-  const [isRefreshingQuote, setIsRefreshingQuote] = useState(false);
+  const [quoteRetryAt, setQuoteRetryAt] = useState<number | null>(null);
+  const [quoteStatus, setQuoteStatus] = useState<QuoteStatus>("healthy");
   const refreshInFlightRef = useRef(false);
+  const mountedRef = useRef(true);
+  const activeMarketIdRef = useRef(market.id);
+  const refreshTokenRef = useRef(0);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
+  const isRefreshingQuote = quoteStatus === "refreshing";
+  const isQuoteStale = quoteStatus === "stale";
+  const cycleMs = isQuoteStale ? QUOTE_RETRY_MS : QUOTE_REFRESH_MS;
+  const remainingMs = Math.max(0, quoteExpiresAt - quoteNow);
+  const remainingSeconds = Math.ceil(remainingMs / 1000);
+  const quoteProgress = Math.min(1, Math.max(0, (cycleMs - remainingMs) / cycleMs));
+  const quoteStrokeDashoffset = 40 - 40 * quoteProgress;
+  const secondsSinceUpdate = quoteUpdatedAt !== null ? Math.max(0, Math.floor((quoteNow - quoteUpdatedAt) / 1000)) : null;
 
   useEffect(() => {
+    mountedRef.current = true;
+    activeMarketIdRef.current = market.id;
+    refreshTokenRef.current += 1;
     setDisplayMarket(market);
-    setLastUpdatedAt(null);
-    setQuoteNow(Date.now());
-    setQuoteExpiresAt(Date.now() + QUOTE_REFRESH_MS);
-    setQuoteStale(false);
-    setIsRefreshingQuote(false);
+    const now = Date.now();
+    setQuoteUpdatedAt(now);
+    setQuoteNow(now);
+    setQuoteExpiresAt(now + QUOTE_REFRESH_MS);
+    setQuoteRetryAt(null);
+    setQuoteStatus("healthy");
     refreshInFlightRef.current = false;
+    return () => {
+      mountedRef.current = false;
+    };
   }, [market.id]);
 
   const refreshQuote = useCallback(async () => {
-    if (!onUpdatePrices) return;
+    if (!onUpdatePrices || !mountedRef.current) return;
     if (refreshInFlightRef.current) return;
     refreshInFlightRef.current = true;
-    setIsRefreshingQuote(true);
+    setQuoteStatus("refreshing");
+    const requestToken = ++refreshTokenRef.current;
+    const requestMarketId = activeMarketIdRef.current;
     try {
       const updated = await onUpdatePrices(displayMarket);
+      if (!mountedRef.current || requestToken !== refreshTokenRef.current || requestMarketId !== activeMarketIdRef.current) return;
       if (updated) {
         setDisplayMarket(updated);
-        setLastUpdatedAt(Date.now());
-        setQuoteStale(false);
+        const now = Date.now();
+        setQuoteUpdatedAt(now);
+        setQuoteNow(now);
+        setQuoteExpiresAt(now + QUOTE_REFRESH_MS);
+        setQuoteRetryAt(null);
+        setQuoteStatus("healthy");
       } else {
-        setQuoteStale(true);
+        const retryAt = Date.now() + QUOTE_RETRY_MS;
+        setQuoteRetryAt(retryAt);
+        setQuoteExpiresAt(retryAt);
+        setQuoteStatus("stale");
       }
     } catch {
-      setQuoteStale(true);
+      if (!mountedRef.current) return;
+      if (requestToken !== refreshTokenRef.current || requestMarketId !== activeMarketIdRef.current) return;
+      const retryAt = Date.now() + QUOTE_RETRY_MS;
+      setQuoteRetryAt(retryAt);
+      setQuoteExpiresAt(retryAt);
+      setQuoteStatus("stale");
     } finally {
-      const nextExpiry = Date.now() + QUOTE_REFRESH_MS;
-      setQuoteExpiresAt(nextExpiry);
-      setQuoteNow(Date.now());
+      if (mountedRef.current) setQuoteNow(Date.now());
       refreshInFlightRef.current = false;
-      setIsRefreshingQuote(false);
     }
-  }, [displayMarket, onUpdatePrices]);
+  }, [displayMarket, onUpdatePrices, quoteStatus]);
 
   useEffect(() => {
     if (!onUpdatePrices) return;
     const timer = window.setInterval(() => {
       const now = Date.now();
       setQuoteNow(now);
-      if (!refreshInFlightRef.current && now >= quoteExpiresAt) {
+      if (refreshInFlightRef.current) return;
+      if (quoteStatus === "stale" && quoteRetryAt && now >= quoteRetryAt) {
+        void refreshQuote();
+        return;
+      }
+      if (quoteStatus !== "stale" && now >= quoteExpiresAt) {
         void refreshQuote();
       }
     }, QUOTE_TICK_MS);
     return () => window.clearInterval(timer);
-  }, [onUpdatePrices, quoteExpiresAt, refreshQuote]);
-
-  const remainingMs = Math.max(0, quoteExpiresAt - quoteNow);
-  const remainingSeconds = Math.ceil(remainingMs / 1000);
-  const quoteProgress = Math.min(1, Math.max(0, (QUOTE_REFRESH_MS - remainingMs) / QUOTE_REFRESH_MS));
-  const quoteStrokeDashoffset = 40 - 40 * quoteProgress;
+  }, [onUpdatePrices, quoteExpiresAt, quoteRetryAt, quoteStatus, refreshQuote]);
 
   return (
     <aside
@@ -111,29 +143,41 @@ export function MarketTradePanel({
 
       <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2">
         <div className="flex min-w-0 items-center gap-3">
-          <div className={`relative grid h-9 w-9 place-items-center rounded-full border ${quoteStale ? "border-rose-400/40 bg-rose-400/10" : "border-cyan-400/40 bg-cyan-400/10"}`}>
-            <svg aria-hidden="true" className="h-7 w-7 -rotate-90" viewBox="0 0 20 20">
+          <div
+            className={`relative grid h-9 w-9 place-items-center rounded-full border ${
+              isQuoteStale ? "border-amber-400/40 bg-amber-400/10" : isRefreshingQuote ? "border-cyan-400/40 bg-cyan-400/10" : "border-emerald-400/40 bg-emerald-400/10"
+            }`}
+          >
+            <svg aria-hidden="true" className={`h-7 w-7 -rotate-90 ${isRefreshingQuote ? "animate-spin" : ""}`} viewBox="0 0 20 20">
               <circle cx="10" cy="10" r="6.4" fill="none" className="stroke-zinc-800" strokeWidth="1.8" />
               <circle
                 cx="10"
                 cy="10"
                 r="6.4"
                 fill="none"
-                className={quoteStale ? "stroke-rose-300" : "stroke-cyan-300"}
+                className={isQuoteStale ? "stroke-amber-300" : isRefreshingQuote ? "stroke-cyan-300" : "stroke-emerald-300"}
                 strokeDasharray="40"
                 strokeDashoffset={quoteStrokeDashoffset}
                 strokeLinecap="round"
                 strokeWidth="1.8"
               />
             </svg>
-            <span className="absolute text-[10px] font-bold text-zinc-50">{quoteStale ? "!" : remainingSeconds}</span>
+            <span className="absolute text-[10px] font-bold text-zinc-50">{isQuoteStale ? "!" : remainingSeconds}</span>
           </div>
           <div className="min-w-0">
             <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Quote</p>
-            <p className={`truncate text-sm font-medium ${quoteStale ? "text-rose-200" : "text-zinc-200"}`}>
-              {quoteStale ? "Quote stale" : isRefreshingQuote ? "Refreshing quote" : `Quote refreshes in ${remainingSeconds}s`}
+            <p className={`truncate text-sm font-medium ${isQuoteStale ? "text-amber-200" : isRefreshingQuote ? "text-cyan-200" : "text-emerald-200"}`}>
+              {isQuoteStale ? "Quote temporarily unavailable" : isRefreshingQuote ? "Refreshing quote" : "Live quote"}
             </p>
-            <p className="text-xs text-zinc-500">{lastUpdatedAt ? `Last quote ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : "Frozen quote"}</p>
+            <p className="text-xs text-zinc-500">
+              {isQuoteStale
+                ? quoteRetryAt
+                  ? `Retrying in ${Math.max(0, Math.ceil((quoteRetryAt - quoteNow) / 1000))}s`
+                  : "Retrying"
+                : secondsSinceUpdate === null
+                  ? "Frozen quote"
+                  : `Updated ${secondsSinceUpdate}s ago`}
+            </p>
           </div>
         </div>
         <Button
