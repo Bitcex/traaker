@@ -1,24 +1,66 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { ExternalLink, RefreshCw, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
+import { useAccount, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
-import { TradeTicket } from "@/components/trading/TradeTicket";
+import { Input } from "@/components/ui/input";
+import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
+import { placeLimitOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
 
-const money = (value: number) => {
-  const numeric = Number.isFinite(value) ? Math.max(0, value) : 0;
-  if (numeric >= 1_000_000) return `$${(numeric / 1_000_000).toFixed(1)}M`;
-  if (numeric >= 1_000) return `$${(numeric / 1_000).toFixed(numeric >= 100_000 ? 0 : 1)}k`;
-  return `$${Math.round(numeric)}`;
-};
-
-const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Number.isFinite(price) ? price : 0)) * 100)}\u00a2`;
-const formatMovement = (value: number) => `${value >= 0 ? "+" : ""}${(Number.isFinite(value) ? value * 100 : 0).toFixed(1)}%`;
 const QUOTE_REFRESH_MS = 10_000;
 const QUOTE_TICK_MS = 250;
 const QUOTE_RETRY_MS = 3_000;
+const DEFAULT_SHARES = "10";
+
 type QuoteStatus = "healthy" | "refreshing" | "stale";
+type TradeSide = "Buy" | "Sell";
+type TradeToast = { tone: "success" | "error" | "info"; message: string };
+
+const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Number.isFinite(price) ? price : 0)) * 100)}\u00a2`;
+const formatSeconds = (value: number | null) => (value === null ? "Live" : `Quote updated ${value}s ago`);
+
+function priceForSide(market: MarketBubbleNode, outcomeIndex: number, side: TradeSide) {
+  const bestBid = Number.isFinite(market.bestBid) ? market.bestBid : undefined;
+  const bestAsk = Number.isFinite(market.bestAsk) ? market.bestAsk : undefined;
+  if (outcomeIndex === 0) return side === "Buy" ? bestAsk : bestBid;
+  if (outcomeIndex === 1) {
+    const inverse = side === "Buy" ? bestBid : bestAsk;
+    return Number.isFinite(inverse) ? 1 - (inverse as number) : undefined;
+  }
+  return undefined;
+}
+
+function extractOrderId(response: unknown) {
+  if (!response || typeof response !== "object") return "";
+  const record = response as Record<string, unknown>;
+  return String(record.orderID ?? record.orderId ?? record.order_id ?? record.hash ?? record.id ?? "");
+}
+
+function userFacingTradeError(message: string) {
+  return /builder code/i.test(message) ? "Trading configuration is unavailable. Try again after deployment configuration is updated." : message;
+}
+
+function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string | null) {
+  return market.outcomes.find((outcome) => outcome.name === preferred) ?? market.outcomes.find((outcome) => outcome.name === market.favoredOutcome) ?? market.outcomes[0];
+}
+
+function useOptionalAccount() {
+  try {
+    return useAccount();
+  } catch {
+    return { chainId: undefined, isConnected: false };
+  }
+}
+
+function useOptionalWalletClient() {
+  try {
+    return useWalletClient({ chainId: 137 }).data;
+  } catch {
+    return undefined;
+  }
+}
 
 export function MarketTradePanel({
   market,
@@ -29,8 +71,15 @@ export function MarketTradePanel({
   onUpdatePrices?: (market: MarketBubbleNode) => Promise<MarketBubbleNode | null>;
   onClose: () => void;
 }) {
-  const [side, setSide] = useState<"Buy" | "Sell">("Buy");
+  const { chainId, isConnected } = useOptionalAccount();
+  const walletClient = useOptionalWalletClient();
   const [displayMarket, setDisplayMarket] = useState(market);
+  const [selectedOutcomeName, setSelectedOutcomeName] = useState(() => selectedOutcomeFromMarket(market)?.name ?? "");
+  const [shares, setShares] = useState(DEFAULT_SHARES);
+  const [realTradingEnabled, setRealTradingEnabled] = useState(false);
+  const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
+  const [toast, setToast] = useState<TradeToast | null>(null);
+  const [orderId, setOrderId] = useState("");
   const [quoteUpdatedAt, setQuoteUpdatedAt] = useState<number | null>(null);
   const [quoteNow, setQuoteNow] = useState(() => Date.now());
   const [quoteExpiresAt, setQuoteExpiresAt] = useState(() => Date.now() + QUOTE_REFRESH_MS);
@@ -40,21 +89,28 @@ export function MarketTradePanel({
   const mountedRef = useRef(true);
   const activeMarketIdRef = useRef(market.id);
   const refreshTokenRef = useRef(0);
-  const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
-  const isRefreshingQuote = quoteStatus === "refreshing";
-  const isQuoteStale = quoteStatus === "stale";
-  const cycleMs = isQuoteStale ? QUOTE_RETRY_MS : QUOTE_REFRESH_MS;
-  const remainingMs = Math.max(0, quoteExpiresAt - quoteNow);
-  const remainingSeconds = Math.ceil(remainingMs / 1000);
-  const quoteProgress = Math.min(1, Math.max(0, (cycleMs - remainingMs) / cycleMs));
-  const quoteStrokeDashoffset = 40 - 40 * quoteProgress;
+  const lastMarketIdRef = useRef(market.id);
+
+  const selectedOutcome = selectedOutcomeFromMarket(displayMarket, selectedOutcomeName);
+  const selectedOutcomeIndex = Math.max(0, displayMarket.outcomes.findIndex((outcome) => outcome.name === selectedOutcome?.name));
+  const buyPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Buy");
+  const sellPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Sell");
+  const numericShares = Number(shares);
+  const safeShares = Number.isFinite(numericShares) ? Math.max(0, numericShares) : 0;
   const secondsSinceUpdate = quoteUpdatedAt !== null ? Math.max(0, Math.floor((quoteNow - quoteUpdatedAt) / 1000)) : null;
+  const quoteLabel = quoteStatus === "stale" ? "Quote stale" : quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
+  const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
 
   useEffect(() => {
     mountedRef.current = true;
     activeMarketIdRef.current = market.id;
     refreshTokenRef.current += 1;
     setDisplayMarket(market);
+    setSelectedOutcomeName((current) => {
+      if (lastMarketIdRef.current !== market.id) return selectedOutcomeFromMarket(market)?.name ?? "";
+      return selectedOutcomeFromMarket(market, current)?.name ?? selectedOutcomeFromMarket(market)?.name ?? "";
+    });
+    lastMarketIdRef.current = market.id;
     const now = Date.now();
     setQuoteUpdatedAt(now);
     setQuoteNow(now);
@@ -66,6 +122,19 @@ export function MarketTradePanel({
       mountedRef.current = false;
     };
   }, [market]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/polymarket/config", { cache: "no-store" })
+      .then((response) => response.json())
+      .then((data: { realTradingEnabled?: boolean }) => {
+        if (active && data.realTradingEnabled) setRealTradingEnabled(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const refreshQuote = useCallback(async () => {
     if (!onUpdatePrices || !mountedRef.current) return;
@@ -79,6 +148,7 @@ export function MarketTradePanel({
       if (!mountedRef.current || requestToken !== refreshTokenRef.current || requestMarketId !== activeMarketIdRef.current) return;
       if (updated) {
         setDisplayMarket(updated);
+        setSelectedOutcomeName((current) => selectedOutcomeFromMarket(updated, current)?.name ?? selectedOutcomeFromMarket(updated)?.name ?? "");
         const now = Date.now();
         setQuoteUpdatedAt(now);
         setQuoteNow(now);
@@ -121,167 +191,246 @@ export function MarketTradePanel({
     return () => window.clearInterval(timer);
   }, [onUpdatePrices, quoteExpiresAt, quoteRetryAt, quoteStatus, refreshQuote]);
 
+  const createOrder = useCallback(
+    async (side: TradeSide) => {
+      const outcome = selectedOutcome;
+      const price = side === "Buy" ? buyPrice : sellPrice;
+      if (!outcome || !Number.isFinite(price)) return;
+      setSubmittingSide(side);
+      setToast(null);
+      setOrderId("");
+
+      const tokenID = outcome.tokenId ?? "";
+      const orderValue = safeShares * (price as number);
+      const builderCode = process.env.NEXT_PUBLIC_POLY_BUILDER_CODE || "";
+
+      try {
+        if (!isConnected) {
+          setToast({ tone: "error", message: "Connect a wallet before trading." });
+          return;
+        }
+        if (chainId !== 137) {
+          setToast({ tone: "error", message: "Switch to Polygon mainnet before trading." });
+          return;
+        }
+        if (!tokenID) {
+          setToast({ tone: "error", message: "This outcome is missing a CLOB token id." });
+          return;
+        }
+        if (safeShares <= 0 || orderValue <= 0) {
+          setToast({ tone: "error", message: "Enter an order size greater than 0." });
+          return;
+        }
+
+        let availableBalance = side === "Sell" ? Number.MAX_SAFE_INTEGER : Number.MAX_SAFE_INTEGER;
+        if (realTradingEnabled && side === "Buy") {
+          const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
+          const accountData = await accountResponse.json();
+          availableBalance = Number(accountData.balance?.balance ?? 0) / 1_000_000;
+        }
+
+        const validation = validateTrade({
+          walletConnected: isConnected,
+          chainId: chainId ?? 0,
+          tokenID,
+          amount: orderValue,
+          price: price as number,
+          slippageBps: 100,
+          availableBalance,
+          builderCode,
+        });
+
+        if (!validation.ok) {
+          setToast({ tone: "error", message: userFacingTradeError(validation.errors[0] ?? "Trade validation failed.") });
+          return;
+        }
+
+        if (!realTradingEnabled) {
+          setToast({ tone: "success", message: `${side} ${outcome.name} validated at ${formatCents(price as number)}. Real order submission is disabled.` });
+          return;
+        }
+
+        if (!walletClient) {
+          setToast({ tone: "error", message: "Connect a wallet before trading." });
+          return;
+        }
+
+        const client = await createSignerClient({
+          signer: walletClient,
+          signatureType: SignatureTypeV2.POLY_1271,
+        });
+        const response = await placeLimitOrder(client, {
+          tokenID,
+          price: price as number,
+          size: safeShares,
+          side: side === "Buy" ? Side.BUY : Side.SELL,
+          userUSDCBalance: side === "Buy" ? availableBalance : undefined,
+        });
+        const nextOrderId = extractOrderId(response);
+        setOrderId(nextOrderId);
+        setToast({ tone: "success", message: nextOrderId ? `Order submitted: ${nextOrderId}` : `${side} order submitted.` });
+      } catch (error) {
+        setToast({
+          tone: "error",
+          message: error instanceof Error ? error.message : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.",
+        });
+      } finally {
+        setSubmittingSide(null);
+      }
+    },
+    [buyPrice, chainId, isConnected, realTradingEnabled, safeShares, selectedOutcome, sellPrice, walletClient],
+  );
+
+  const actionButtons = useMemo(
+    () =>
+      ([
+        { side: "Buy" as const, price: buyPrice, className: "bg-emerald-400 text-slate-950 hover:bg-emerald-300" },
+        { side: "Sell" as const, price: sellPrice, className: "bg-rose-400 text-slate-950 hover:bg-rose-300" },
+      ]).map((action) => {
+        const disabled = !selectedOutcome || !Number.isFinite(action.price) || safeShares <= 0 || submittingSide !== null;
+        const label = Number.isFinite(action.price) && selectedOutcome ? `${action.side} ${selectedOutcome.name}  ${formatCents(action.price as number)}` : `${action.side} unavailable`;
+        return (
+          <Button
+            className={`h-12 flex-1 text-sm font-black shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
+            disabled={disabled}
+            key={action.side}
+            onClick={() => void createOrder(action.side)}
+            type="button"
+            variant={Number.isFinite(action.price) ? "default" : "secondary"}
+          >
+            {submittingSide === action.side ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            {label}
+          </Button>
+        );
+      }),
+    [buyPrice, createOrder, safeShares, selectedOutcome, sellPrice, submittingSide],
+  );
+
   return (
     <aside
       aria-label="Market trading panel"
-      className="absolute inset-x-0 bottom-0 z-30 max-h-[78%] overflow-y-auto border-t border-zinc-700 bg-[#07080b]/97 p-4 shadow-2xl shadow-black/60 backdrop-blur-xl transition-transform md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:w-[420px] md:max-h-none md:border-l md:border-t-0"
+      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[84%] flex-col overflow-hidden border-t border-zinc-800/90 bg-[#07080b]/98 shadow-2xl shadow-black/60 backdrop-blur-xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[420px] md:border-l md:border-t-0"
       onClick={(event) => event.stopPropagation()}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-cyan-300/80">{displayMarket.sport}</p>
-          <h2 className="mt-2 text-xl font-semibold leading-tight tracking-tight text-zinc-50">{displayMarket.title}</h2>
-          <p className="mt-3 text-sm text-zinc-400">
-            Favored: <span className="font-semibold text-zinc-50">{displayMarket.favoredOutcome}</span>{" "}
-            <span className="text-cyan-200">{formatCents(displayMarket.favoredPrice)}</span>
-          </p>
+      <div className="flex items-start justify-between gap-4 border-b border-zinc-800/80 px-4 py-4">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-200">
+              {quoteStatus === "stale" ? "Stale" : "Live"}
+            </span>
+            <span className="text-xs text-zinc-500">{quoteLabel}</span>
+          </div>
+          <h2 className="mt-2 line-clamp-2 text-lg font-semibold leading-tight tracking-tight text-zinc-50">{displayMarket.title}</h2>
+          {selectedOutcome ? <p className="mt-1 truncate text-sm font-medium text-cyan-100">{selectedOutcome.name}</p> : null}
         </div>
-        <Button aria-label="Close market details" className="shrink-0" onClick={onClose} size="icon" type="button" variant="ghost">
-          <X className="h-4 w-4" />
-        </Button>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button
+            aria-label="Refresh quote now"
+            className="h-8 w-8"
+            disabled={!onUpdatePrices || quoteStatus === "refreshing"}
+            onClick={() => void refreshQuote()}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${quoteStatus === "refreshing" ? "animate-spin" : ""}`} />
+          </Button>
+          <Button aria-label="Close market details" className="h-8 w-8" onClick={onClose} size="icon" type="button" variant="ghost">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
-      <div className="mt-4 flex items-center justify-between gap-3 rounded-md border border-zinc-800 bg-zinc-950/70 px-3 py-2">
-        <div className="flex min-w-0 items-center gap-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 pb-5">
+        {displayMarket.activeRangeWarning ? (
+          <div className="mb-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
+            Market moved outside active range
+          </div>
+        ) : null}
+
+        <div className="rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
+            {polymarketUrl ? (
+              <a
+                className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-200 transition hover:text-cyan-100"
+                href={polymarketUrl}
+                rel="noreferrer"
+                target={polymarketUrl.startsWith("http") ? "_blank" : undefined}
+              >
+                Polymarket
+                <ExternalLink className="h-3 w-3" />
+              </a>
+            ) : null}
+          </div>
+          <div className="grid gap-2">
+            {displayMarket.outcomes.map((outcome) => {
+              const selected = outcome.name === selectedOutcome?.name;
+              return (
+                <button
+                  className={`flex min-h-12 items-center justify-between gap-3 rounded-md border px-3 py-2 text-left transition ${
+                    selected ? "border-cyan-300/60 bg-cyan-300/10 text-white shadow-[0_0_24px_rgba(34,211,238,0.08)]" : "border-zinc-800 bg-black/25 text-zinc-200 hover:border-zinc-600"
+                  }`}
+                  key={`${displayMarket.id}-${outcome.name}`}
+                  onClick={() => setSelectedOutcomeName(outcome.name)}
+                  type="button"
+                >
+                  <span className="min-w-0 truncate text-sm font-semibold">{outcome.name}</span>
+                  <span className="shrink-0 text-lg font-black">{formatCents(outcome.price)}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <label className="mt-4 block rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3 text-sm">
+          <span className="text-xs uppercase tracking-[0.16em] text-zinc-500">Shares</span>
+          <Input className="mt-2 border-zinc-800 bg-black text-base font-semibold" min="0" onChange={(event) => setShares(event.target.value)} step="1" type="number" value={shares} />
+          <span className="mt-2 block text-xs text-zinc-500">
+            Estimated buy cost {Number.isFinite(buyPrice) ? `$${(safeShares * (buyPrice as number)).toFixed(2)}` : "--"} · estimated sell proceeds{" "}
+            {Number.isFinite(sellPrice) ? `$${(safeShares * (sellPrice as number)).toFixed(2)}` : "--"}
+          </span>
+        </label>
+
+        {orderId ? (
+          <div className="mt-4 rounded-lg border border-zinc-800 bg-black/35 p-3 text-xs text-zinc-400">
+            <span className="text-zinc-500">Order hash/id</span>
+            <p className="mt-1 break-all font-mono text-zinc-200">{orderId}</p>
+          </div>
+        ) : null}
+
+        {toast ? (
           <div
-            className={`relative grid h-9 w-9 place-items-center rounded-full border ${
-              isQuoteStale ? "border-amber-400/40 bg-amber-400/10" : isRefreshingQuote ? "border-cyan-400/40 bg-cyan-400/10" : "border-emerald-400/40 bg-emerald-400/10"
+            className={`mt-4 flex gap-2 rounded-lg border p-3 text-sm ${
+              toast.tone === "success"
+                ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
+                : toast.tone === "error"
+                  ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
+                  : "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
             }`}
           >
-            <svg aria-hidden="true" className={`h-7 w-7 -rotate-90 ${isRefreshingQuote ? "animate-spin" : ""}`} viewBox="0 0 20 20">
-              <circle cx="10" cy="10" r="6.4" fill="none" className="stroke-zinc-800" strokeWidth="1.8" />
-              <circle
-                cx="10"
-                cy="10"
-                r="6.4"
-                fill="none"
-                className={isQuoteStale ? "stroke-amber-300" : isRefreshingQuote ? "stroke-cyan-300" : "stroke-emerald-300"}
-                strokeDasharray="40"
-                strokeDashoffset={quoteStrokeDashoffset}
-                strokeLinecap="round"
-                strokeWidth="1.8"
-              />
-            </svg>
-            <span className="absolute text-[10px] font-bold text-zinc-50">{isQuoteStale ? "!" : remainingSeconds}</span>
+            {toast.tone === "success" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
+            <span className="break-words">{toast.message}</span>
           </div>
-          <div className="min-w-0">
-            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Quote</p>
-            <p className={`truncate text-sm font-medium ${isQuoteStale ? "text-amber-200" : isRefreshingQuote ? "text-cyan-200" : "text-emerald-200"}`}>
-              {isQuoteStale ? "Quote temporarily unavailable" : isRefreshingQuote ? "Refreshing quote" : "Live quote"}
-            </p>
-            <p className="text-xs text-zinc-500">
-              {isQuoteStale
-                ? quoteRetryAt
-                  ? `Retrying in ${Math.max(0, Math.ceil((quoteRetryAt - quoteNow) / 1000))}s`
-                  : "Retrying"
-                : secondsSinceUpdate === null
-                  ? "Frozen quote"
-                  : `Updated ${secondsSinceUpdate}s ago`}
-            </p>
-          </div>
-        </div>
-        <Button
-          aria-label="Refresh quote now"
-          className="h-8 w-8 shrink-0"
-          disabled={!onUpdatePrices || isRefreshingQuote}
-          onClick={() => void refreshQuote()}
-          size="icon"
-          type="button"
-          variant="ghost"
-          title="Refresh quote now"
-        >
-          <RefreshCw className={`h-3.5 w-3.5 ${isRefreshingQuote ? "animate-spin" : ""}`} />
-        </Button>
+        ) : null}
       </div>
 
-      {displayMarket.activeRangeWarning ? (
-        <div className="mt-4 rounded-md border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-sm font-medium text-amber-100">
-          Market moved outside active range
+      <div className="border-t border-zinc-800/90 bg-[#07080b]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.32)]">
+        <div className="flex gap-2">{actionButtons}</div>
+        <p className="mt-2 text-[11px] leading-4 text-zinc-500">
+          Orders are signed by your wallet and posted to Polymarket CLOB V2. Traak never takes custody of funds.
+        </p>
+      </div>
+
+      {toast ? (
+        <div
+          className={`fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border p-3 text-sm shadow-2xl ${
+            toast.tone === "success" ? "border-emerald-400/30 bg-emerald-950 text-emerald-100" : "border-rose-400/30 bg-rose-950 text-rose-100"
+          }`}
+        >
+          {toast.message}
         </div>
       ) : null}
-
-      <div className="mt-5 grid grid-cols-3 gap-2">
-        <button
-          className={`h-9 rounded-md text-sm font-semibold transition ${side === "Buy" ? "bg-emerald-400 text-black" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"}`}
-          onClick={() => setSide("Buy")}
-          type="button"
-        >
-          Buy
-        </button>
-        <button
-          className={`h-9 rounded-md text-sm font-semibold transition ${side === "Sell" ? "bg-rose-400 text-black" : "bg-zinc-900 text-zinc-300 hover:bg-zinc-800"}`}
-          onClick={() => setSide("Sell")}
-          type="button"
-        >
-          Sell
-        </button>
-        <div className="grid place-items-center rounded-md border border-zinc-800 bg-zinc-950 text-xs font-semibold text-zinc-400">{side}</div>
-      </div>
-
-      <div className="mt-5 grid grid-cols-2 gap-3 text-sm">
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Volume</p>
-          <p className="mt-1 text-lg font-semibold text-zinc-100">{money(displayMarket.volume)}</p>
-        </div>
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Liquidity</p>
-          <p className="mt-1 text-lg font-semibold text-zinc-100">{money(displayMarket.liquidity)}</p>
-        </div>
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Movement</p>
-          <p className={displayMarket.priceChange >= 0 ? "mt-1 text-lg font-semibold text-emerald-300" : "mt-1 text-lg font-semibold text-rose-300"}>
-            {formatMovement(displayMarket.priceChange)}
-          </p>
-        </div>
-        <div className="rounded-md border border-zinc-800 bg-zinc-950/80 p-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Bid / Ask</p>
-          <p className="mt-1 text-lg font-semibold text-zinc-100">
-            {displayMarket.bestBid ? formatCents(displayMarket.bestBid) : "--"} / {displayMarket.bestAsk ? formatCents(displayMarket.bestAsk) : "--"}
-          </p>
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-md border border-zinc-800 bg-zinc-950/85 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Outcomes</p>
-          <span className="text-xs font-medium text-zinc-500">Snapshot</span>
-        </div>
-        <div className="mt-3 space-y-2">
-          {displayMarket.outcomes.map((outcome) => {
-            const isFavored = outcome.name === displayMarket.favoredOutcome;
-            return (
-              <div
-                className={`flex items-center justify-between gap-3 rounded-md border px-3 py-2 ${
-                  isFavored ? "border-cyan-400/50 bg-cyan-400/10" : "border-zinc-800 bg-black/30"
-                }`}
-                key={`${displayMarket.id}-${outcome.name}`}
-              >
-                <span className="min-w-0 truncate font-semibold text-zinc-100">{outcome.name}</span>
-                <span className="text-2xl font-black text-white">{formatCents(outcome.price)}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      <TradeTicket market={displayMarket} />
-
-      <div className="mt-5 grid gap-2">
-        {polymarketUrl ? (
-          <a
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-md bg-cyan-400 px-4 text-sm font-semibold text-black transition hover:bg-cyan-300"
-            href={polymarketUrl}
-            rel="noreferrer"
-            target={polymarketUrl.startsWith("http") ? "_blank" : undefined}
-          >
-            Open on Polymarket
-            <ExternalLink className="h-4 w-4" />
-          </a>
-        ) : null}
-        <Button disabled type="button" variant="secondary">
-          Execution disabled
-        </Button>
-      </div>
     </aside>
   );
 }

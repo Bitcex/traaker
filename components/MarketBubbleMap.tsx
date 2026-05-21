@@ -47,6 +47,7 @@ export type MarketOutcomeOption = {
   name: string;
   price: number;
   priceCents: number;
+  tokenId?: string;
 };
 
 type RawOutcomeMarket = TerminalMarket & {
@@ -332,6 +333,7 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
   const seen = new Set<string>();
   return names.map((name, index) => {
     const price = clamp01(prices[index]);
+    const tokenId = index === 0 ? market.tokenIds?.yes : index === 1 ? market.tokenIds?.no : undefined;
     let label = cleanOutcomeName(name, market.title);
     if (seen.has(label.toLowerCase())) {
       label = matchupOutcomeName(market.title, index) ?? `${label} ${index + 1}`;
@@ -341,6 +343,7 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
       name: label,
       price,
       priceCents: Math.round(price * 100),
+      tokenId,
     };
   });
 }

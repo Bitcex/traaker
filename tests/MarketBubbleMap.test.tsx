@@ -74,6 +74,8 @@ const market: TerminalMarket = {
   volume: 250_000,
   liquidity: 75_000,
   priceMove24h: 0.03,
+  bestBid: 0.47,
+  bestAsk: 0.54,
   volume1wk: 350_000,
   volumeAcceleration: 1,
   spread: 0.02,
@@ -170,13 +172,15 @@ describe("MarketBubbleMap", () => {
     fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
 
     expect(screen.getByRole("heading", { name: "Los Angeles Lakers vs Boston Celtics" })).toBeInTheDocument();
-    expect(screen.getByText("NBA")).toBeInTheDocument();
-    expect(screen.getByText("$250k")).toBeInTheDocument();
     expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Celtics").length).toBeGreaterThan(0);
-    expect(screen.getByRole("link", { name: /open on polymarket/i })).toHaveAttribute("href", "https://polymarket.com/event/lakers-celtics");
-    expect(screen.getByRole("button", { name: "Connect wallet to trade" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Execution disabled" })).toBeDisabled();
+    expect(screen.getByRole("link", { name: /polymarket/i })).toHaveAttribute("href", "https://polymarket.com/event/lakers-celtics");
+    expect(screen.getByRole("button", { name: /buy lakers\s+54/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /sell lakers\s+47/i })).toBeEnabled();
+    expect(screen.queryByText("Volume")).not.toBeInTheDocument();
+    expect(screen.queryByText("Liquidity")).not.toBeInTheDocument();
+    expect(screen.queryByText("Movement")).not.toBeInTheDocument();
+    expect(screen.queryByText("Bid / Ask")).not.toBeInTheDocument();
   });
 
   it("closes the trade panel with Escape", () => {
@@ -394,16 +398,15 @@ describe("MarketBubbleMap", () => {
     render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
 
     expect(screen.getByText("Market moved outside active range")).toBeInTheDocument();
-    expect(screen.getByText("Favored:").parentElement).toHaveTextContent("Lakers");
-    expect(screen.getByRole("button", { name: /lakers/i })).toHaveClass("border-cyan-400");
+    expect(screen.getByRole("button", { name: /lakers\s+9/i })).toHaveClass("border-cyan-300/60");
   });
 
   it("trade panel keeps selected outcome and row order across price updates", () => {
     const panelMarket = marketToBubbleNode(market);
     const { rerender } = render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole("button", { name: /celtics/i }));
-    expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+    fireEvent.click(screen.getByRole("button", { name: /celtics\s+38/i }));
+    expect(screen.getByRole("button", { name: /celtics\s+38/i })).toHaveClass("border-cyan-300/60");
 
     rerender(
       <MarketTradePanel
@@ -418,10 +421,24 @@ describe("MarketBubbleMap", () => {
       />,
     );
 
-    const lakers = screen.getByRole("button", { name: /lakers/i });
-    const celtics = screen.getByRole("button", { name: /celtics/i });
+    const lakers = screen.getByRole("button", { name: /lakers\s+59/i });
+    const celtics = screen.getByRole("button", { name: /celtics\s+41/i });
     expect(lakers.compareDocumentPosition(celtics) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(celtics).toHaveClass("border-cyan-400");
+    expect(celtics).toHaveClass("border-cyan-300/60");
+  });
+
+  it("starts the direct trade flow from buy and sell buttons", () => {
+    const panelMarket = marketToBubbleNode(market);
+    render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} />);
+
+    const buyButton = screen.getByRole("button", { name: /buy lakers\s+54/i });
+    const sellButton = screen.getByRole("button", { name: /sell lakers\s+47/i });
+    expect(buyButton).toBeEnabled();
+    expect(sellButton).toBeEnabled();
+
+    fireEvent.click(buyButton);
+
+    expect(screen.getAllByText("Connect a wallet before trading.").length).toBeGreaterThan(0);
   });
 
   it("refreshes the quote on a 10-second cycle and via the refresh-now icon", async () => {
@@ -432,12 +449,11 @@ describe("MarketBubbleMap", () => {
       render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
 
       expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
-      expect(screen.getByText(/live quote/i)).toBeInTheDocument();
-      expect(screen.getByText(/updated 0s ago/i)).toBeInTheDocument();
+      expect(screen.getByText(/quote updated 0s ago/i)).toBeInTheDocument();
       await act(async () => {
-        fireEvent.click(screen.getByRole("button", { name: /celtics/i }));
+        fireEvent.click(screen.getByRole("button", { name: /celtics\s+38/i }));
       });
-      expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+      expect(screen.getByRole("button", { name: /celtics\s+38/i })).toHaveClass("border-cyan-300/60");
 
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: /refresh quote now/i }));
@@ -445,7 +461,7 @@ describe("MarketBubbleMap", () => {
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(1);
       expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0);
-      expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+      expect(screen.getByRole("button", { name: /celtics\s+29/i })).toHaveClass("border-cyan-300/60");
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(10_000);
@@ -453,7 +469,7 @@ describe("MarketBubbleMap", () => {
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(2);
       expect(screen.getAllByText("71\u00a2").length).toBeGreaterThan(0);
-      expect(screen.getByRole("button", { name: /celtics/i })).toHaveClass("border-cyan-400");
+      expect(screen.getByRole("button", { name: /celtics\s+29/i })).toHaveClass("border-cyan-300/60");
     } finally {
       vi.useRealTimers();
     }
@@ -473,15 +489,14 @@ describe("MarketBubbleMap", () => {
       });
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(1);
-      expect(screen.getByText(/quote temporarily unavailable/i)).toBeInTheDocument();
+      expect(screen.getByText(/quote stale/i)).toBeInTheDocument();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3_000);
       });
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(2);
-      expect(screen.getByText(/live quote/i)).toBeInTheDocument();
-      expect(screen.getByText(/updated 0s ago/i)).toBeInTheDocument();
+      expect(screen.getByText(/quote updated 0s ago/i)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
