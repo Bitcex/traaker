@@ -11,11 +11,8 @@ describe("polymarket runtime config", () => {
     vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
     vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
     vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
+    vi.stubEnv("POLYMARKET_SESSION_SECRET", "a".repeat(32));
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
-    vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
-    vi.stubEnv("POLYMARKET_API_KEY", "api-key");
-    vi.stubEnv("POLYMARKET_SECRET", "secret");
-    vi.stubEnv("POLYMARKET_PASSPHRASE", "passphrase");
 
     const config = getPolymarketRuntimeConfigDetails();
 
@@ -30,29 +27,23 @@ describe("polymarket runtime config", () => {
     vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
     vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
     vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
+    vi.stubEnv("POLYMARKET_SESSION_SECRET", "a".repeat(32));
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
-    vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
-    vi.stubEnv("POLYMARKET_API_KEY", "api-key");
-    vi.stubEnv("POLYMARKET_SECRET", "secret");
-    vi.stubEnv("POLYMARKET_PASSPHRASE", "passphrase");
 
     const config = getPolymarketRuntimeConfigDetails();
 
     expect(config.builderReady).toBe(false);
-    expect(config.clobReady).toBe(false);
+    expect(config.clobReady).toBe(true);
     expect(config.missingSetupReason).toMatch(/builder code/i);
   });
 
   it("reports missing relayer credentials as gasless setup only", () => {
     vi.stubEnv("POLYMARKET_BUILDER_CODE", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
+    vi.stubEnv("POLYMARKET_SESSION_SECRET", "a".repeat(32));
     vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "");
     vi.stubEnv("POLYMARKET_BUILDER_SECRET", "");
     vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "");
-    vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
-    vi.stubEnv("POLYMARKET_API_KEY", "api-key");
-    vi.stubEnv("POLYMARKET_SECRET", "secret");
-    vi.stubEnv("POLYMARKET_PASSPHRASE", "passphrase");
 
     const config = getPolymarketRuntimeConfigDetails();
 
@@ -62,19 +53,20 @@ describe("polymarket runtime config", () => {
     expect(config.missingSetupReason).toMatch(/gasless trading/i);
   });
 
-  it("reports missing CLOB credentials separately", () => {
+  it("reports a missing session secret separately", () => {
     vi.stubEnv("POLYMARKET_BUILDER_CODE", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
     vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
     vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
+    vi.stubEnv("POLYMARKET_SESSION_SECRET", "");
 
     const config = getPolymarketRuntimeConfigDetails();
 
     expect(config.builderReady).toBe(true);
     expect(config.gaslessReady).toBe(true);
     expect(config.clobReady).toBe(false);
-    expect(config.missingSetupReason).toMatch(/clob trading/i);
+    expect(config.missingSetupReason).toMatch(/session-backed trading/i);
   });
 
   it("accepts a valid Polygon RPC URL and reports a clear error when it is missing", () => {
@@ -82,11 +74,8 @@ describe("polymarket runtime config", () => {
     vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
     vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
     vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
+    vi.stubEnv("POLYMARKET_SESSION_SECRET", "a".repeat(32));
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.com");
-    vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
-    vi.stubEnv("POLYMARKET_API_KEY", "api-key");
-    vi.stubEnv("POLYMARKET_SECRET", "secret");
-    vi.stubEnv("POLYMARKET_PASSPHRASE", "passphrase");
 
     const ready = getPolymarketRuntimeConfigDetails();
     expect(ready.gaslessReady).toBe(true);

@@ -1,5 +1,6 @@
 import type { Address, PublicClient, WalletClient } from "viem";
 import { getDepositWalletStatus } from "./depositWallet";
+import { ensureTradingSession } from "./tradeService";
 import {
   createRelayClient,
   ensureDepositWalletApprovals,
@@ -88,7 +89,16 @@ export async function syncBalanceAllowance(input: {
   tradingWalletAddress: string;
   assetType?: "COLLATERAL" | "CONDITIONAL";
   tokenId?: string;
+  walletClient?: WalletClient;
+  address?: Address;
+  chainId?: number;
 }) {
+  if (input.walletClient && input.address) {
+    await ensureTradingSession(input.walletClient, input.chainId ?? 137, {
+      tradingWalletAddress: input.tradingWalletAddress,
+      signatureType: input.signatureType,
+    });
+  }
   const response = await fetch("/api/polymarket/balance-allowance/update", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -138,6 +148,11 @@ export async function ensureTradingReady(input: {
     const relayClient = createRelayClient(input.walletClient as WalletClient);
     depositWalletAddress = await ensureDepositWalletDeployed(relayClient);
   }
+
+  await ensureTradingSession(input.walletClient as WalletClient, 137, {
+    tradingWalletAddress: depositWalletAddress,
+    signatureType: 3,
+  });
 
   input.onProgress?.("checking-balance");
   let account = await loadPolymarketAccount();
@@ -210,6 +225,9 @@ export async function ensureTradingReady(input: {
       tradingWalletAddress: depositWalletAddress as `0x${string}`,
       assetType: "COLLATERAL",
       tokenId: input.tokenId,
+      walletClient: input.walletClient as WalletClient,
+      address: input.address as `0x${string}`,
+      chainId: 137,
     });
   }
   if (!balance.usdc.hasCtfAllowance) {
@@ -218,6 +236,9 @@ export async function ensureTradingReady(input: {
       tradingWalletAddress: depositWalletAddress as `0x${string}`,
       assetType: "CONDITIONAL",
       tokenId: input.tokenId,
+      walletClient: input.walletClient as WalletClient,
+      address: input.address as `0x${string}`,
+      chainId: 137,
     });
   }
   if (!balance.usdc.hasExchangeAllowance || !balance.usdc.hasCtfAllowance) {

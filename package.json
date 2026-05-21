@@ -26,6 +26,7 @@
     "d3-force": "^3.0.0",
     "eventemitter2": "^6.4.9",
     "framer-motion": "^12.34.3",
+    "iron-session": "^8.0.4",
     "lucide-react": "^1.16.0",
     "next": "16.1.6",
     "prisma": "^6.16.2",

@@ -46,6 +46,9 @@ const normalizeSide = (value: string | number) => {
   return value;
 };
 
+const sameAddress = (left: string | null | undefined, right: string | null | undefined) =>
+  Boolean(left && right && left.toLowerCase() === right.toLowerCase());
+
 export async function POST(request: Request) {
   if (!isRealTradingEnabled()) {
     return NextResponse.json(
@@ -84,13 +87,29 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Signature type mismatch." }, { status: 400 });
   }
 
-  let creds: ReturnType<typeof getPolymarketServerCreds>;
+  let creds: Awaited<ReturnType<typeof getPolymarketServerCreds>>;
   try {
-    creds = getPolymarketServerCreds();
+    creds = await getPolymarketServerCreds();
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "CLOB trading is not configured on server." },
-      { status: 500, headers: { "Cache-Control": "no-store" } },
+      {
+        ok: false,
+        code: "AUTH_INVALID_SESSION",
+        error: error instanceof Error ? error.message : "Trading session is not initialized.",
+      },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (parsed.authAddress && !sameAddress(parsed.authAddress, creds.address)) {
+    return NextResponse.json(
+      { ok: false, code: "AUTH_INVALID_SESSION", error: "Connected wallet does not match active trading session." },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+  if (parsed.funderAddress && creds.tradingWalletAddress && !sameAddress(parsed.funderAddress, creds.tradingWalletAddress)) {
+    return NextResponse.json(
+      { ok: false, code: "AUTH_INVALID_SESSION", error: "Trading wallet does not match active trading session." },
+      { status: 409, headers: { "Cache-Control": "no-store" } },
     );
   }
   const execution = parsed.execution ?? parsed.orderType ?? "GTC";
@@ -105,10 +124,22 @@ export async function POST(request: Request) {
   };
   const body = JSON.stringify(orderPayload);
   const requestPath = "/order";
-  const headers = {
-    "Content-Type": "application/json",
-    ...buildL2Headers({ method: "POST", requestPath, body }),
-  };
+  let headers: Record<string, string>;
+  try {
+    headers = {
+      "Content-Type": "application/json",
+      ...(await buildL2Headers({ method: "POST", requestPath, body })),
+    };
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "AUTH_INVALID_SESSION",
+        error: error instanceof Error ? error.message : "Trading session is not initialized.",
+      },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
 
   logInfo("api.polymarket.order", "order_submission_started", {
     orderType: execution,

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { AssetType, Chain, ClobClient, type ApiKeyCreds, type BalanceAllowanceParams, type SignatureTypeV2 } from "@polymarket/clob-client-v2";
-import { getPolymarketServerCreds } from "@/lib/server/polymarketAuth";
+import { getSession, isSessionExpired } from "@/lib/server/session";
 import { logError, logInfo } from "@/lib/server/logger";
 
 export const runtime = "nodejs";
@@ -53,7 +53,7 @@ const buildClobClient = ({
     retryOnError: true,
   });
 
-const hasCompleteCreds = (creds: ReturnType<typeof getPolymarketServerCreds> | null) => Boolean(creds?.key && creds.secret && creds.passphrase);
+const hasCompleteCreds = (creds: ApiKeyCreds | null) => Boolean(creds?.key && creds.secret && creds.passphrase);
 
 export async function POST(request: NextRequest) {
   const body = await parseBody(request);
@@ -77,13 +77,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "tradingWalletAddress is required." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
-  let creds;
+  let session: Awaited<ReturnType<typeof getSession>>;
   try {
-    creds = getPolymarketServerCreds();
+    session = await getSession();
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Missing Polymarket CLOB credentials." },
+      { ok: false, error: error instanceof Error ? error.message : "Server session not configured." },
       { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
+  if (isSessionExpired(session) || !session.l2 || !session.walletAddress) {
+    return NextResponse.json(
+      {
+        ok: false,
+        code: "AUTH_INVALID_SESSION",
+        error: "Trading session is not initialized. Reconnect your wallet and approve the trading session prompt.",
+      },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
     );
   }
 
@@ -91,9 +102,14 @@ export async function POST(request: NextRequest) {
     asset_type: assetType === AssetType.CONDITIONAL ? AssetType.CONDITIONAL : AssetType.COLLATERAL,
     ...(tokenId ? { token_id: tokenId } : {}),
   };
+  const creds: ApiKeyCreds = {
+    key: session.l2.apiKey,
+    secret: session.l2.secret,
+    passphrase: session.l2.passphrase,
+  };
 
   logInfo("api.polymarket.balance_allowance", "balance_allowance_update_requested", {
-    connectedEoa: connectedEoa ?? null,
+    connectedEoa: connectedEoa ?? session.walletAddress ?? null,
     signatureType,
     tradingWalletAddress,
     assetType,
@@ -103,17 +119,17 @@ export async function POST(request: NextRequest) {
 
   try {
     const clobClient = buildClobClient({
-      walletAddress: creds.address,
+      walletAddress: session.walletAddress,
       creds,
       signatureType,
       tradingWalletAddress,
     });
     const update = await clobClient.updateBalanceAllowance(allowanceParams);
     const balanceAllowance = await clobClient.getBalanceAllowance(allowanceParams);
-    if (connectedEoa && !sameAddress(connectedEoa, creds.address)) {
+    if (connectedEoa && !sameAddress(connectedEoa, session.walletAddress)) {
       logInfo("api.polymarket.balance_allowance", "connected_eoa_mismatch", {
         connectedEoa,
-        serverAddress: creds.address,
+        serverAddress: session.walletAddress,
       });
     }
     return NextResponse.json(

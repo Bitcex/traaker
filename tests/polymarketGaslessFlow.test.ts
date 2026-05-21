@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   ensureDepositWalletApprovals: vi.fn(),
   ensureDepositWalletConditionalApproval: vi.fn(),
   getPolymarketExchangeConfig: vi.fn(),
+  ensureTradingSession: vi.fn(),
 }));
 
 vi.mock("@/lib/polymarket/depositWallet", () => ({
@@ -20,6 +21,10 @@ vi.mock("@/lib/polymarket/relayer", () => ({
   ensureDepositWalletApprovals: mocks.ensureDepositWalletApprovals,
   ensureDepositWalletConditionalApproval: mocks.ensureDepositWalletConditionalApproval,
   getPolymarketExchangeConfig: mocks.getPolymarketExchangeConfig,
+}));
+
+vi.mock("@/lib/polymarket/tradeService", () => ({
+  ensureTradingSession: mocks.ensureTradingSession,
 }));
 
 describe("gasless trade setup", () => {
@@ -56,6 +61,9 @@ describe("gasless trade setup", () => {
             }),
             { status: 200 },
           );
+        }
+        if (url.includes("/api/polymarket/auth/status") || url.includes("/api/polymarket/auth/init")) {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
         }
         if (url.includes("/api/polymarket/account")) {
           return new Response(JSON.stringify(readyAccount), { status: 200 });
@@ -97,6 +105,7 @@ describe("gasless trade setup", () => {
 
   it("deploys the deposit wallet when it is missing", async () => {
     stubConfig();
+    mocks.ensureTradingSession.mockResolvedValue(true);
     mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: false });
     mocks.createRelayClient.mockReturnValue({ relay: true });
     mocks.ensureDepositWalletDeployed.mockResolvedValue("0xdead");
@@ -122,6 +131,7 @@ describe("gasless trade setup", () => {
 
   it("syncs CLOB balances with signature type 3 when allowances are missing", async () => {
     stubConfig();
+    mocks.ensureTradingSession.mockResolvedValue(true);
     mocks.getDepositWalletStatus.mockResolvedValue({ depositWallet: "0xdead", initialized: true });
     mocks.createRelayClient.mockReturnValue({ relay: true });
     mocks.getPolymarketExchangeConfig.mockReturnValue({

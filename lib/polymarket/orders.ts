@@ -122,6 +122,9 @@ export async function submitSignedOrder(input: { order: SignedOrder | Normalized
   if (!response.ok || data?.ok === false) {
     const message = data?.error ?? data?.message ?? "Polymarket order submission failed.";
     const haystack = `${message} ${data?.details ? JSON.stringify(data.details) : ""}`;
+    if ((data as { code?: string } | null)?.code === "AUTH_INVALID_SESSION") {
+      throw new Error("Polymarket authorization expired. Reconnect your wallet and retry.");
+    }
     if (/invalid authorization/i.test(haystack)) {
       throw new Error("Polymarket authorization expired. Retry the order after refreshing credentials.");
     }

@@ -47,10 +47,7 @@ Traak now follows Polybet’s credential separation:
 
 - `POLYMARKET_BUILDER_CODE`
 - `POLYMARKET_CLOB_URL`
-- `POLYMARKET_ADDRESS`
-- `POLYMARKET_API_KEY`
-- `POLYMARKET_SECRET`
-- `POLYMARKET_PASSPHRASE`
+- `POLYMARKET_SESSION_SECRET`
 - `POLYMARKET_RPC_URL`
 
 Existing Traak database/admin env vars remain only for existing portfolio persistence/admin routes.

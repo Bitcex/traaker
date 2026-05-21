@@ -24,11 +24,12 @@ export async function POST(request: Request) {
   const body = JSON.stringify({ orderID: parsed.data.orderId });
   const requestPath = "/order";
   try {
+    const headers = await buildL2Headers({ method: "DELETE", requestPath, body });
     const response = await fetch(`${POLYMARKET_CLOB_URL}${requestPath}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",
-        ...buildL2Headers({ method: "DELETE", requestPath, body }),
+        ...headers,
       },
       body,
     });
@@ -37,6 +38,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, data });
   } catch (error) {
     logError("api.polymarket.order.cancel", error);
-    return NextResponse.json({ ok: false, error: "Unable to cancel order." }, { status: 502 });
+    const message = error instanceof Error ? error.message : "Unable to cancel order.";
+    const sessionInvalid = /Trading session is not initialized|POLYMARKET_SESSION_SECRET/i.test(message);
+    return NextResponse.json(
+      { ok: false, code: sessionInvalid ? "AUTH_INVALID_SESSION" : undefined, error: message },
+      { status: sessionInvalid ? 401 : 502, headers: { "Cache-Control": "no-store" } },
+    );
   }
 }

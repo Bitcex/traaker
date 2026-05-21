@@ -1,6 +1,6 @@
 const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
-const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const RPC_ERROR_MESSAGE = "POLYMARKET_RPC_URL is missing or invalid. Set a Polygon mainnet RPC URL.";
+const SESSION_ERROR_MESSAGE = "POLYMARKET_SESSION_SECRET is missing or invalid. Session-backed trading is not configured on server.";
 
 export type PolymarketRuntimeConfigSummary = {
   builderReady: boolean;
@@ -13,10 +13,9 @@ export type PolymarketRuntimeConfigSummary = {
 export type PolymarketRuntimeConfigDetails = PolymarketRuntimeConfigSummary & {
   rpcReady: boolean;
   builderCode: string | null;
-  relayerApiKeyAddress: string | null;
-  clobAccountAddress: string | null;
   hasClobCreds: boolean;
   hasRelayerCreds: boolean;
+  hasSessionSecret: boolean;
 };
 
 type ConfigIssue = {
@@ -42,14 +41,12 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
   const builderSecret = env("POLYMARKET_BUILDER_SECRET") || null;
   const builderPassphrase = env("POLYMARKET_BUILDER_PASSPHRASE") || null;
   const rpcUrl = env("POLYMARKET_RPC_URL") || null;
-  const clobAccountAddress = env("POLYMARKET_ADDRESS") || null;
-  const clobApiKey = env("POLYMARKET_API_KEY") || null;
-  const clobSecret = env("POLYMARKET_SECRET") || null;
-  const clobPassphrase = env("POLYMARKET_PASSPHRASE") || null;
+  const sessionSecret = env("POLYMARKET_SESSION_SECRET") || null;
 
   const builderReady = Boolean(builderCode && BYTES32_RE.test(builderCode));
   const hasRelayerCreds = Boolean(builderApiKey && builderSecret && builderPassphrase);
-  const hasClobCreds = Boolean(clobAccountAddress && ADDRESS_RE.test(clobAccountAddress) && clobApiKey && clobSecret && clobPassphrase);
+  const hasSessionSecret = Boolean(sessionSecret && sessionSecret.length >= 32);
+  const hasClobCreds = hasSessionSecret;
   const rpcReady = isValidHttpUrl(rpcUrl);
 
   const issues: ConfigIssue[] = [];
@@ -69,7 +66,7 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
   if (!hasClobCreds) {
     issues.push({
       key: "clob",
-      message: "CLOB trading is not configured on server.",
+      message: SESSION_ERROR_MESSAGE,
     });
   }
 
@@ -83,13 +80,12 @@ export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDeta
   return {
     builderReady,
     gaslessReady: hasRelayerCreds && rpcReady,
-    clobReady: builderReady && hasClobCreds,
+    clobReady: hasClobCreds,
     missingSetupReason: issues[0]?.message ?? null,
     realTradingEnabled: process.env.ENABLE_REAL_TRADING === "true",
     rpcReady,
     builderCode,
-    relayerApiKeyAddress: null,
-    clobAccountAddress,
+    hasSessionSecret,
     hasClobCreds,
     hasRelayerCreds,
   };
@@ -131,16 +127,10 @@ export function requireBuilderRelayerAuth() {
   return { builderApiKey, builderSecret, builderPassphrase };
 }
 
-export function requireClobAuth() {
-  const account = env("POLYMARKET_ADDRESS");
-  const key = env("POLYMARKET_API_KEY");
-  const secret = env("POLYMARKET_SECRET");
-  const passphrase = env("POLYMARKET_PASSPHRASE");
-  if (!account || !key || !secret || !passphrase) {
-    throw new Error("CLOB trading is not configured on server.");
+export function requireSessionSecret() {
+  const sessionSecret = env("POLYMARKET_SESSION_SECRET");
+  if (!sessionSecret || sessionSecret.length < 32) {
+    throw new Error(SESSION_ERROR_MESSAGE);
   }
-  if (!ADDRESS_RE.test(account)) {
-    throw new Error("POLYMARKET_ADDRESS is invalid. Expected an Ethereum address.");
-  }
-  return { address: account, key, secret, passphrase };
+  return sessionSecret;
 }

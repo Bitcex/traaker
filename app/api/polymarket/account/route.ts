@@ -7,9 +7,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function signedGet(path: string) {
+  const headers = await buildL2Headers({ method: "GET", requestPath: path });
   const response = await fetch(`${POLYMARKET_CLOB_URL}${path}`, {
     method: "GET",
-    headers: buildL2Headers({ method: "GET", requestPath: path }),
+    headers,
   });
   const data = await response.json().catch(() => null);
   if (!response.ok) throw new Error(data?.error ?? `CLOB request failed (${response.status})`);
@@ -27,15 +28,20 @@ export async function GET() {
   } catch (error) {
     logError("api.polymarket.account", error);
     const message = error instanceof Error ? error.message : "Unable to load Polymarket account data.";
-    const configInvalid = /POLYMARKET_(ADDRESS|API_KEY|SECRET|PASSPHRASE)|bytes32 hex string|CLOB trading is not configured on server|POLYMARKET_RPC_URL is missing or invalid/i.test(message);
+    const sessionInvalid = /Trading session is not initialized/i.test(message);
+    const configInvalid = /bytes32 hex string|POLYMARKET_(BUILDER_CODE|BUILDER_API_KEY|BUILDER_SECRET|BUILDER_PASSPHRASE|SESSION_SECRET)|POLYMARKET_RPC_URL is missing or invalid/i.test(message);
     return NextResponse.json(
       {
         ok: false,
-        code: configInvalid ? "POLYMARKET_CONFIG_INVALID" : "POLYMARKET_ACCOUNT_UNAVAILABLE",
-        error: configInvalid ? "POLYMARKET configuration is missing or invalid." : "Unable to load Polymarket account data.",
+        code: sessionInvalid ? "AUTH_INVALID_SESSION" : configInvalid ? "POLYMARKET_CONFIG_INVALID" : "POLYMARKET_ACCOUNT_UNAVAILABLE",
+        error: sessionInvalid
+          ? "Trading session is not initialized. Reconnect your wallet and approve the trading session prompt."
+          : configInvalid
+            ? "POLYMARKET configuration is missing or invalid."
+            : "Unable to load Polymarket account data.",
         details: { message },
       },
-      { status: configInvalid ? 500 : 502, headers: { "Cache-Control": "no-store" } },
+      { status: sessionInvalid ? 401 : configInvalid ? 500 : 502, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

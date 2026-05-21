@@ -34,10 +34,7 @@ Required:
 ```bash
 POLYMARKET_BUILDER_CODE="0xYOUR_BYTES32_BUILDER_CODE"
 POLYMARKET_CLOB_URL="https://clob.polymarket.com"
-POLYMARKET_ADDRESS="0xYOUR_POLYMARKET_AUTH_ADDRESS"
-POLYMARKET_API_KEY="your-server-l2-api-key"
-POLYMARKET_SECRET="your-server-l2-secret"
-POLYMARKET_PASSPHRASE="your-server-l2-passphrase"
+POLYMARKET_SESSION_SECRET="replace-with-a-strong-32-byte-secret"
 POLYMARKET_RPC_URL="https://polygon-rpc.com"
 ENABLE_REAL_TRADING="false"
 ```

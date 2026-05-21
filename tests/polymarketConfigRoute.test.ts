@@ -10,11 +10,8 @@ describe("/api/polymarket/config", () => {
     vi.stubEnv("POLYMARKET_BUILDER_API_KEY", "builder-key");
     vi.stubEnv("POLYMARKET_BUILDER_SECRET", "builder-secret");
     vi.stubEnv("POLYMARKET_BUILDER_PASSPHRASE", "builder-passphrase");
+    vi.stubEnv("POLYMARKET_SESSION_SECRET", "a".repeat(32));
     vi.stubEnv("POLYMARKET_RPC_URL", "https://polygon-rpc.example");
-    vi.stubEnv("POLYMARKET_ADDRESS", "0x2222222222222222222222222222222222222222");
-    vi.stubEnv("POLYMARKET_API_KEY", "api-key");
-    vi.stubEnv("POLYMARKET_SECRET", "secret");
-    vi.stubEnv("POLYMARKET_PASSPHRASE", "passphrase");
 
     const { GET } = await import("@/app/api/polymarket/config/route");
     const response = await GET();

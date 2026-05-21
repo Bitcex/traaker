@@ -1,14 +1,24 @@
-import "server-only";
-
 import { createHmac } from "node:crypto";
-import { requireClobAuth, requireBuilderCode } from "./polymarketRuntimeConfig";
+import { getSession, isSessionExpired } from "./session";
+import { requireBuilderCode } from "./polymarketRuntimeConfig";
 
 export const getServerBuilderCode = () => {
   return requireBuilderCode();
 };
 
-export const getPolymarketServerCreds = () => {
-  return requireClobAuth();
+export const getPolymarketServerCreds = async () => {
+  const session = await getSession();
+  if (isSessionExpired(session) || !session.l2 || !session.walletAddress) {
+    throw new Error("Trading session is not initialized. Reconnect your wallet and approve the trading session prompt.");
+  }
+  return {
+    address: session.walletAddress,
+    key: session.l2.apiKey,
+    secret: session.l2.secret,
+    passphrase: session.l2.passphrase,
+    tradingWalletAddress: session.tradingWalletAddress ?? null,
+    signatureType: session.signatureType ?? null,
+  };
 };
 
 const decodeBase64Url = (secret: string) => {
@@ -17,8 +27,8 @@ const decodeBase64Url = (secret: string) => {
   return Buffer.from(padded, "base64");
 };
 
-export function buildL2Headers(args: { method: string; requestPath: string; body?: string }) {
-  const creds = getPolymarketServerCreds();
+export async function buildL2Headers(args: { method: string; requestPath: string; body?: string }) {
+  const creds = await getPolymarketServerCreds();
   const timestamp = Math.floor(Date.now() / 1000);
   const body = args.body ?? "";
   const message = `${timestamp}${args.method}${args.requestPath}${body}`;
