@@ -15,6 +15,7 @@ export type TradeProgress =
   | "initializing-trading-wallet"
   | "checking-balance"
   | "approving-trading"
+  | "refreshing-quote"
   | "submitting-order";
 
 export type TradeSetupResult = {

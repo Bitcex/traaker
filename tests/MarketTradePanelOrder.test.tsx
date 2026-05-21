@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
 import type { MarketBubbleNode } from "@/components/MarketBubbleMap";
@@ -170,5 +170,102 @@ describe("MarketTradePanel orders", () => {
 
     await waitFor(() => expect(mocks.ensureTradingReady).toHaveBeenCalled());
     await waitFor(() => expect(mocks.placeLimitOrder).toHaveBeenCalled());
+  });
+
+  it("auto-refreshes a stale quote before buying and submits with the refreshed price", async () => {
+    mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
+    mocks.createSignerClient.mockResolvedValue({ client: "signed" });
+    mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-2" });
+    const refreshedMarket = {
+      ...market,
+      favoredPrice: 0.71,
+      priceCents: 71,
+      outcomes: [
+        { name: "PSG", price: 0.71, priceCents: 71, tokenId: "111111", marketId: "psg-market", conditionId: "psg-condition" },
+        { name: "Arsenal", price: 0.29, priceCents: 29, tokenId: "222221", marketId: "arsenal-market", conditionId: "arsenal-condition" },
+      ],
+    };
+    const onUpdatePrices = vi.fn().mockRejectedValueOnce(new Error("network down")).mockResolvedValueOnce(refreshedMarket);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config"))
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+        if (url.includes("/api/polymarket/account"))
+          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+
+    render(<MarketTradePanel market={market} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /refresh quote now/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /buy psg\s+59/i }));
+    });
+
+    expect(onUpdatePrices).toHaveBeenCalledTimes(2);
+    expect(mocks.placeLimitOrder).toHaveBeenCalledWith(
+      { client: "signed" },
+      expect.objectContaining({
+        tokenID: "111111",
+        price: 0.71,
+        size: 10,
+      }),
+    );
+  });
+
+  it("retries quote refresh once before buying and still submits if the retry succeeds", async () => {
+    mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
+    mocks.createSignerClient.mockResolvedValue({ client: "signed" });
+    mocks.placeLimitOrder.mockResolvedValue({ orderID: "order-3" });
+    const refreshedMarket = {
+      ...market,
+      favoredPrice: 0.68,
+      priceCents: 68,
+      outcomes: [
+        { name: "PSG", price: 0.68, priceCents: 68, tokenId: "111111", marketId: "psg-market", conditionId: "psg-condition" },
+        { name: "Arsenal", price: 0.32, priceCents: 32, tokenId: "222221", marketId: "arsenal-market", conditionId: "arsenal-condition" },
+      ],
+    };
+    const onUpdatePrices = vi.fn()
+      .mockRejectedValueOnce(new Error("network down"))
+      .mockRejectedValueOnce(new Error("still down"))
+      .mockResolvedValueOnce(refreshedMarket);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config"))
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+        if (url.includes("/api/polymarket/account"))
+          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+
+    render(<MarketTradePanel market={market} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /refresh quote now/i }));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /buy psg\s+59/i }));
+    });
+
+    expect(onUpdatePrices).toHaveBeenCalledTimes(3);
+    expect(mocks.placeLimitOrder).toHaveBeenCalledWith(
+      { client: "signed" },
+      expect.objectContaining({
+        tokenID: "111111",
+        price: 0.68,
+        size: 10,
+      }),
+    );
   });
 });

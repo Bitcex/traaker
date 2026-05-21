@@ -23,7 +23,7 @@ type TradeSide = "Buy" | "Sell";
 type TradeToast = { tone: "success" | "error" | "info"; message: string };
 
 const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Number.isFinite(price) ? price : 0)) * 100)}\u00a2`;
-const formatSeconds = (value: number | null) => (value === null ? "Live" : `Quote updated ${value}s ago`);
+const formatSeconds = (value: number | null) => (value === null ? "Live" : `Updated ${value}s ago`);
 
 function priceForSide(market: MarketBubbleNode, outcomeIndex: number, side: TradeSide) {
   const outcome = market.outcomes[outcomeIndex];
@@ -56,6 +56,12 @@ function userFacingTradeError(message: string) {
 
 function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string | null) {
   return market.outcomes.find((outcome) => outcome.name === preferred) ?? market.outcomes.find((outcome) => outcome.name === market.favoredOutcome) ?? market.outcomes[0];
+}
+
+function outcomePriceForSide(market: MarketBubbleNode, outcomeName: string, side: TradeSide) {
+  const outcome = market.outcomes.find((item) => item.name === outcomeName);
+  const outcomeIndex = Math.max(0, market.outcomes.findIndex((item) => item.name === outcome?.name));
+  return priceForSide(market, outcomeIndex, side);
 }
 
 function useOptionalAccount() {
@@ -122,10 +128,12 @@ export function MarketTradePanel({
   const selectedOutcomeIndex = Math.max(0, displayMarket.outcomes.findIndex((outcome) => outcome.name === selectedOutcome?.name));
   const buyPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Buy");
   const sellPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Sell");
+  const quoteAgeMs = quoteUpdatedAt === null ? null : Math.max(0, quoteNow - quoteUpdatedAt);
+  const quoteIsStale = quoteStatus === "stale" || (quoteAgeMs !== null && quoteAgeMs >= QUOTE_REFRESH_MS);
   const numericShares = Number(shares);
   const safeShares = Number.isFinite(numericShares) ? Math.max(0, numericShares) : 0;
   const secondsSinceUpdate = quoteUpdatedAt !== null ? Math.max(0, Math.floor((quoteNow - quoteUpdatedAt) / 1000)) : null;
-  const quoteLabel = quoteStatus === "stale" ? "Quote stale" : quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
+  const quoteLabel = quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
   const tradeDisabledReason = getTradeDisabledReason({
     configReady: !configError,
@@ -136,7 +144,7 @@ export function MarketTradePanel({
     depositWalletInitialized,
     balance: accountBalance,
     accountError,
-    quoteFresh: quoteStatus === "healthy",
+    quoteFresh: true,
   });
 
   useEffect(() => {
@@ -264,16 +272,16 @@ export function MarketTradePanel({
     };
   }, [chainId, configError, isConnected, publicClient, walletClient]);
 
-  const refreshQuote = useCallback(async () => {
-    if (!onUpdatePrices || !mountedRef.current) return;
-    if (refreshInFlightRef.current) return;
+  const refreshQuote = useCallback(async (): Promise<MarketBubbleNode | null> => {
+    if (!onUpdatePrices || !mountedRef.current) return null;
+    if (refreshInFlightRef.current) return null;
     refreshInFlightRef.current = true;
     setQuoteStatus("refreshing");
     const requestToken = ++refreshTokenRef.current;
     const requestMarketId = activeMarketIdRef.current;
     try {
       const updated = await onUpdatePrices(displayMarket);
-      if (!mountedRef.current || requestToken !== refreshTokenRef.current || requestMarketId !== activeMarketIdRef.current) return;
+      if (!mountedRef.current || requestToken !== refreshTokenRef.current || requestMarketId !== activeMarketIdRef.current) return null;
       if (updated) {
         setDisplayMarket(updated);
         setSelectedOutcomeName((current) => selectedOutcomeFromMarket(updated, current)?.name ?? selectedOutcomeFromMarket(updated)?.name ?? "");
@@ -283,6 +291,7 @@ export function MarketTradePanel({
         setQuoteExpiresAt(now + QUOTE_REFRESH_MS);
         setQuoteRetryAt(null);
         setQuoteStatus("healthy");
+        return updated;
       } else {
         const retryAt = Date.now() + QUOTE_RETRY_MS;
         setQuoteRetryAt(retryAt);
@@ -290,8 +299,8 @@ export function MarketTradePanel({
         setQuoteStatus("stale");
       }
     } catch {
-      if (!mountedRef.current) return;
-      if (requestToken !== refreshTokenRef.current || requestMarketId !== activeMarketIdRef.current) return;
+      if (!mountedRef.current) return null;
+      if (requestToken !== refreshTokenRef.current || requestMarketId !== activeMarketIdRef.current) return null;
       const retryAt = Date.now() + QUOTE_RETRY_MS;
       setQuoteRetryAt(retryAt);
       setQuoteExpiresAt(retryAt);
@@ -300,7 +309,15 @@ export function MarketTradePanel({
       if (mountedRef.current) setQuoteNow(Date.now());
       refreshInFlightRef.current = false;
     }
+    return null;
   }, [displayMarket, onUpdatePrices]);
+
+  const refreshQuoteWithRetry = useCallback(async () => {
+    if (!onUpdatePrices) return null;
+    const first = await refreshQuote();
+    if (first) return first;
+    return refreshQuote();
+  }, [onUpdatePrices, refreshQuote]);
 
   useEffect(() => {
     if (!onUpdatePrices) return;
@@ -321,8 +338,9 @@ export function MarketTradePanel({
 
   const createOrder = useCallback(
     async (side: TradeSide) => {
-      const outcome = selectedOutcome;
-      const price = side === "Buy" ? buyPrice : sellPrice;
+      let tradeMarket = displayMarket;
+      const outcome = selectedOutcomeFromMarket(tradeMarket, selectedOutcomeName);
+      const price = side === "Buy" ? outcomePriceForSide(tradeMarket, outcome?.name ?? "", "Buy") : outcomePriceForSide(tradeMarket, outcome?.name ?? "", "Sell");
       if (!outcome || !Number.isFinite(price)) return;
       setSubmittingSide(side);
       setToast(null);
@@ -330,7 +348,7 @@ export function MarketTradePanel({
       setTradeProgress("checking-wallet");
 
       const tokenID = outcome.tokenId ?? "";
-      const orderValue = safeShares * (price as number);
+      const orderValue = safeShares * (Number.isFinite(price) ? (price as number) : 0);
 
       try {
         if (!isConnected) {
@@ -354,6 +372,26 @@ export function MarketTradePanel({
           return;
         }
 
+        if (onUpdatePrices && (quoteIsStale || !Number.isFinite(price))) {
+          setTradeProgress("refreshing-quote");
+          const refreshed = await refreshQuoteWithRetry();
+          if (refreshed) {
+            tradeMarket = refreshed;
+          }
+        }
+
+        const refreshedOutcome = selectedOutcomeFromMarket(tradeMarket, selectedOutcomeName);
+        const refreshedPrice =
+          side === "Buy"
+            ? outcomePriceForSide(tradeMarket, refreshedOutcome?.name ?? "", "Buy")
+            : outcomePriceForSide(tradeMarket, refreshedOutcome?.name ?? "", "Sell");
+        const finalPrice = Number.isFinite(refreshedPrice) ? refreshedPrice : price;
+        if (!refreshedOutcome || !Number.isFinite(finalPrice)) {
+          setToast({ tone: "error", message: "Unable to refresh the quote. Try again in a moment." });
+          return;
+        }
+        const finalOrderValue = safeShares * (finalPrice as number);
+
         let availableBalance = Number.MAX_SAFE_INTEGER;
         if (realTradingEnabled) {
           const walletAddress = walletClient.account?.address;
@@ -367,8 +405,8 @@ export function MarketTradePanel({
             publicClient,
             side,
             tokenId: tokenID,
-            amount: orderValue,
-            price: price as number,
+            amount: finalOrderValue,
+            price: finalPrice as number,
             onProgress: setTradeProgress,
           });
           setDepositWalletAddress(setup.depositWalletAddress);
@@ -390,8 +428,8 @@ export function MarketTradePanel({
           walletConnected: isConnected,
           chainId: chainId ?? 0,
           tokenID,
-          amount: orderValue,
-          price: price as number,
+          amount: finalOrderValue,
+          price: finalPrice as number,
           slippageBps: 100,
           availableBalance,
         });
@@ -402,7 +440,7 @@ export function MarketTradePanel({
         }
 
         if (!realTradingEnabled) {
-          setToast({ tone: "success", message: `${side} ${outcome.name} validated at ${formatCents(price as number)}. Real order submission is disabled.` });
+          setToast({ tone: "success", message: `${side} ${refreshedOutcome.name} validated at ${formatCents(finalPrice as number)}. Real order submission is disabled.` });
           return;
         }
 
@@ -414,7 +452,7 @@ export function MarketTradePanel({
         });
         const response = await placeLimitOrder(client, {
           tokenID,
-          price: price as number,
+          price: finalPrice as number,
           size: safeShares,
           side: side === "Buy" ? Side.BUY : Side.SELL,
           userUSDCBalance: side === "Buy" ? availableBalance : undefined,
@@ -432,7 +470,7 @@ export function MarketTradePanel({
         setTradeProgress("idle");
       }
     },
-    [buyPrice, chainId, depositWalletAddress, isConnected, publicClient, realTradingEnabled, safeShares, selectedOutcome, sellPrice, walletClient],
+    [chainId, depositWalletAddress, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, realTradingEnabled, safeShares, selectedOutcomeName, walletClient],
   );
 
   const actionButtons = useMemo(
@@ -471,7 +509,7 @@ export function MarketTradePanel({
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[11px] font-bold uppercase tracking-[0.14em] text-emerald-200">
-              {quoteStatus === "stale" ? "Stale" : "Live"}
+              {quoteStatus === "refreshing" ? "Refreshing" : "Live"}
             </span>
             <span className="text-xs text-zinc-500">{quoteLabel}</span>
           </div>
@@ -479,15 +517,7 @@ export function MarketTradePanel({
           {selectedOutcome ? <p className="mt-1 truncate text-sm font-medium text-cyan-100">{selectedOutcome.name}</p> : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
-          <Button
-            aria-label="Refresh quote now"
-            className="h-8 w-8"
-            disabled={!onUpdatePrices || quoteStatus === "refreshing"}
-            onClick={() => void refreshQuote()}
-            size="icon"
-            type="button"
-            variant="ghost"
-          >
+          <Button aria-label="Refresh quote now" className="h-8 w-8" disabled={!onUpdatePrices || quoteStatus === "refreshing"} onClick={() => void refreshQuote()} size="icon" type="button" variant="ghost">
             <RefreshCw className={`h-3.5 w-3.5 ${quoteStatus === "refreshing" ? "animate-spin" : ""}`} />
           </Button>
           <Button aria-label="Close market details" className="h-8 w-8" onClick={onClose} size="icon" type="button" variant="ghost">
@@ -582,7 +612,9 @@ export function MarketTradePanel({
                   ? "Checking balance"
                   : tradeProgress === "approving-trading"
                     ? "Approving trading"
-                    : "Submitting order"}
+                    : tradeProgress === "refreshing-quote"
+                      ? "Refreshing quote"
+                      : "Submitting order"}
           </p>
         ) : null}
         {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-200">{tradeDisabledReason}</p> : null}

@@ -120,6 +120,5 @@ export function getTradeDisabledReason(input: TradeReadinessInput) {
   if (!input.configReady && input.realTradingEnabled) return "Trading configuration unavailable. Try again after deployment configuration is updated.";
   if (!input.isConnected) return "Connect a wallet before trading.";
   if (input.chainId !== 137) return "Switch to Polygon mainnet before trading.";
-  if (input.realTradingEnabled && input.quoteFresh === false) return "Refresh quote.";
   return null;
 }

@@ -519,7 +519,7 @@ describe("MarketBubbleMap", () => {
       render(<MarketTradePanel market={panelMarket} onClose={vi.fn()} onUpdatePrices={onUpdatePrices} />);
 
       expect(screen.getAllByText("62\u00a2").length).toBeGreaterThan(0);
-      expect(screen.getByText(/quote updated 0s ago/i)).toBeInTheDocument();
+      expect(screen.getByText(/updated 0s ago/i)).toBeInTheDocument();
       await act(async () => {
         fireEvent.click(screen.getByRole("button", { name: /celtics\s+38/i }));
       });
@@ -545,7 +545,7 @@ describe("MarketBubbleMap", () => {
     }
   });
 
-  it("shows a stale quote when the refresh fails and recovers on a later successful refresh", async () => {
+  it("keeps the quote visible when the refresh fails and recovers on a later successful refresh", async () => {
     vi.useFakeTimers();
     try {
       const panelMarket = marketToBubbleNode(market);
@@ -559,14 +559,14 @@ describe("MarketBubbleMap", () => {
       });
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(1);
-      expect(screen.getByText(/quote stale/i)).toBeInTheDocument();
+      expect(screen.getByText(/updated 10s ago/i)).toBeInTheDocument();
 
       await act(async () => {
         await vi.advanceTimersByTimeAsync(3_000);
       });
 
       expect(onUpdatePrices).toHaveBeenCalledTimes(2);
-      expect(screen.getByText(/quote updated 0s ago/i)).toBeInTheDocument();
+      expect(screen.getByText(/updated 0s ago/i)).toBeInTheDocument();
     } finally {
       vi.useRealTimers();
     }
