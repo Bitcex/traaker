@@ -116,7 +116,7 @@ export function buildPortfolioSetupSteps(input: {
 }
 
 export function getTradeDisabledReason(input: TradeReadinessInput) {
-  if (input.configError) return input.configError;
+  if (input.configError && !/gasless trading is not configured on server/i.test(input.configError)) return input.configError;
   if (!input.configReady && input.realTradingEnabled) return "Trading configuration unavailable. Try again after deployment configuration is updated.";
   if (!input.isConnected) return "Connect a wallet before trading.";
   if (input.chainId !== 137) return "Switch to Polygon mainnet before trading.";

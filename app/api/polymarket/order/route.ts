@@ -84,7 +84,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, error: "Signature type mismatch." }, { status: 400 });
   }
 
-  const creds = getPolymarketServerCreds();
+  let creds: ReturnType<typeof getPolymarketServerCreds>;
+  try {
+    creds = getPolymarketServerCreds();
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "CLOB trading is not configured on server." },
+      { status: 500, headers: { "Cache-Control": "no-store" } },
+    );
+  }
   const execution = parsed.execution ?? parsed.orderType ?? "GTC";
   const orderPayload = {
     order: {

@@ -70,8 +70,8 @@ export async function POST(request: NextRequest) {
   if (!ASSET_TYPES.has(assetType)) {
     return NextResponse.json({ ok: false, error: "assetType must be COLLATERAL or CONDITIONAL." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
-  if (!Number.isInteger(signatureType) || (signatureType !== 2 && signatureType !== 3)) {
-    return NextResponse.json({ ok: false, error: "signatureType must be 2 for proxy/Safe or 3 for deposit wallet." }, { status: 400, headers: { "Cache-Control": "no-store" } });
+  if (!Number.isInteger(signatureType) || signatureType !== 3) {
+    return NextResponse.json({ ok: false, error: "signatureType must be 3 for deposit wallet trading." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
   if (!tradingWalletAddress) {
     return NextResponse.json({ ok: false, error: "tradingWalletAddress is required." }, { status: 400, headers: { "Cache-Control": "no-store" } });

@@ -21,6 +21,13 @@ const DEFAULT_SHARES = "10";
 type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
 type TradeToast = { tone: "success" | "error" | "info"; message: string };
+type RuntimeConfig = {
+  realTradingEnabled: boolean;
+  builderReady: boolean;
+  gaslessReady: boolean;
+  clobReady: boolean;
+  missingSetupReason: string | null;
+};
 
 const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Number.isFinite(price) ? price : 0)) * 100)}\u00a2`;
 const formatSeconds = (value: number | null) => (value === null ? "Live" : `Updated ${value}s ago`);
@@ -103,8 +110,13 @@ export function MarketTradePanel({
   const [displayMarket, setDisplayMarket] = useState(market);
   const [selectedOutcomeName, setSelectedOutcomeName] = useState(() => selectedOutcomeFromMarket(market)?.name ?? "");
   const [shares, setShares] = useState(DEFAULT_SHARES);
-  const [realTradingEnabled, setRealTradingEnabled] = useState(false);
-  const [configError, setConfigError] = useState<string | null>(null);
+  const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig>({
+    realTradingEnabled: false,
+    builderReady: false,
+    gaslessReady: false,
+    clobReady: false,
+    missingSetupReason: null,
+  });
   const [depositWalletInitialized, setDepositWalletInitialized] = useState<boolean | null>(null);
   const [depositWalletAddress, setDepositWalletAddress] = useState<string | null>(null);
   const [accountBalance, setAccountBalance] = useState<PortfolioBalanceState | null>(null);
@@ -136,9 +148,9 @@ export function MarketTradePanel({
   const quoteLabel = quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
   const tradeDisabledReason = getTradeDisabledReason({
-    configReady: !configError,
-    configError,
-    realTradingEnabled,
+    configReady: runtimeConfig.clobReady,
+    configError: runtimeConfig.missingSetupReason,
+    realTradingEnabled: runtimeConfig.realTradingEnabled,
     isConnected,
     chainId,
     depositWalletInitialized,
@@ -173,20 +185,35 @@ export function MarketTradePanel({
     let active = true;
     fetch("/api/polymarket/config", { cache: "no-store" })
       .then((response) => response.json())
-      .then((data: { ok?: boolean; realTradingEnabled?: boolean; builderCode?: string; error?: string }) => {
+      .then((data: { ok?: boolean; realTradingEnabled?: boolean; builderReady?: boolean; gaslessReady?: boolean; clobReady?: boolean; missingSetupReason?: string | null; error?: string }) => {
         if (!active) return;
         if (!data.ok) {
-          setConfigError(data.error ?? "Trading configuration is unavailable.");
-          setRealTradingEnabled(false);
+          setRuntimeConfig({
+            realTradingEnabled: false,
+            builderReady: false,
+            gaslessReady: false,
+            clobReady: false,
+            missingSetupReason: data.error ?? "Trading configuration is unavailable.",
+          });
           return;
         }
-        setConfigError(null);
-        setRealTradingEnabled(Boolean(data.realTradingEnabled));
+        setRuntimeConfig({
+          realTradingEnabled: Boolean(data.realTradingEnabled),
+          builderReady: Boolean(data.builderReady),
+          gaslessReady: Boolean(data.gaslessReady),
+          clobReady: Boolean(data.clobReady),
+          missingSetupReason: data.missingSetupReason ?? null,
+        });
       })
       .catch(() => {
         if (!active) return;
-        setConfigError("Trading configuration is unavailable.");
-        setRealTradingEnabled(false);
+        setRuntimeConfig({
+          realTradingEnabled: false,
+          builderReady: false,
+          gaslessReady: false,
+          clobReady: false,
+          missingSetupReason: "Trading configuration is unavailable.",
+        });
       });
     return () => {
       active = false;
@@ -227,9 +254,9 @@ export function MarketTradePanel({
           setAccountError(null);
           return;
         }
-        if (configError) {
+        if (!runtimeConfig.clobReady) {
           setAccountBalance(null);
-          setAccountError(configError);
+          setAccountError(runtimeConfig.missingSetupReason ?? "Trading configuration is unavailable.");
           return;
         }
         try {
@@ -270,7 +297,7 @@ export function MarketTradePanel({
     return () => {
       active = false;
     };
-  }, [chainId, configError, isConnected, publicClient, walletClient]);
+  }, [chainId, isConnected, publicClient, runtimeConfig.clobReady, runtimeConfig.missingSetupReason, walletClient]);
 
   const refreshQuote = useCallback(async (): Promise<MarketBubbleNode | null> => {
     if (!onUpdatePrices || !mountedRef.current) return null;
@@ -393,7 +420,7 @@ export function MarketTradePanel({
         const finalOrderValue = safeShares * (finalPrice as number);
 
         let availableBalance = Number.MAX_SAFE_INTEGER;
-        if (realTradingEnabled) {
+        if (runtimeConfig.realTradingEnabled) {
           const walletAddress = walletClient.account?.address;
           if (!walletAddress) {
             setToast({ tone: "error", message: "Connect a wallet before trading." });
@@ -439,7 +466,7 @@ export function MarketTradePanel({
           return;
         }
 
-        if (!realTradingEnabled) {
+        if (!runtimeConfig.realTradingEnabled) {
           setToast({ tone: "success", message: `${side} ${refreshedOutcome.name} validated at ${formatCents(finalPrice as number)}. Real order submission is disabled.` });
           return;
         }
@@ -470,7 +497,7 @@ export function MarketTradePanel({
         setTradeProgress("idle");
       }
     },
-    [chainId, depositWalletAddress, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, realTradingEnabled, safeShares, selectedOutcomeName, walletClient],
+    [chainId, depositWalletAddress, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, runtimeConfig.realTradingEnabled, safeShares, selectedOutcomeName, walletClient],
   );
 
   const actionButtons = useMemo(

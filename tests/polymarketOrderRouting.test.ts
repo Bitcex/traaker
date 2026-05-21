@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { placeLimitOrder } from "@/lib/polymarket/orders";
 
 const BUILDER_CODE = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const MAKER = "0x1111111111111111111111111111111111111111";
-const SIGNER = "0x2222222222222222222222222222222222222222";
+const MAKER = "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF";
+const SIGNER = "0xDeaDbeefdEAdbeefdEadbEEFdeadbeEFdEaDbeeF";
 
 function signedOrder(tokenId: string, side: "BUY" | "SELL") {
   return {
@@ -16,7 +16,7 @@ function signedOrder(tokenId: string, side: "BUY" | "SELL") {
     makerAmount: "1000000",
     takerAmount: "500000",
     side,
-    signatureType: 2,
+    signatureType: 3,
     timestamp: "1766789469",
     expiration: "0",
     metadata: "0x0000000000000000000000000000000000000000000000000000000000000000",
@@ -39,7 +39,7 @@ async function submitCase(input: { tokenID: string; side: Side; price: number; s
     "fetch",
     vi.fn(async (inputUrl: RequestInfo | URL, init?: RequestInit) => {
       const url = String(inputUrl);
-      if (url.includes("/api/polymarket/config")) {
+      if (url.includes("/api/polymarket/builder-code")) {
         return new Response(JSON.stringify({ ok: true, builderCode: BUILDER_CODE }), { status: 200 });
       }
       posted.push(JSON.parse(String(init?.body)));
@@ -65,7 +65,7 @@ describe("Polymarket order routing", () => {
       tradeMode: "limit",
       execution: OrderType.GTC,
       orderType: OrderType.GTC,
-      order: { tokenId: "111111", side: "BUY", builder: BUILDER_CODE },
+      order: { tokenId: "111111", side: "BUY", builder: BUILDER_CODE, maker: MAKER, signer: SIGNER, signatureType: 3 },
     });
   });
 
@@ -93,6 +93,31 @@ describe("Polymarket order routing", () => {
     expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ tokenID: "202", side: Side.SELL, price: 0.45, size: 7, builderCode: BUILDER_CODE }), expect.any(Object));
     expect(posted).toMatchObject({
       order: { tokenId: "202", side: "SELL", builder: BUILDER_CODE },
+    });
+  });
+
+  it("does not require relayer credentials for standard builder-attributed order posting", async () => {
+    const posted: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (inputUrl: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(inputUrl);
+        if (url.includes("/api/polymarket/builder-code")) {
+          return new Response(JSON.stringify({ ok: true, builderCode: BUILDER_CODE }), { status: 200 });
+        }
+        if (url.includes("/api/polymarket/submit")) {
+          throw new Error("Relayer submit should not be called for standard orders.");
+        }
+        posted.push(JSON.parse(String(init?.body)));
+        return new Response(JSON.stringify({ ok: true, data: { success: true } }), { status: 200 });
+      }),
+    );
+
+    const { client } = createClient();
+    await placeLimitOrder(client, { tokenID: "333333", side: Side.BUY, price: 0.61, size: 3 });
+
+    expect(posted[0]).toMatchObject({
+      order: { tokenId: "333333", side: "BUY", builder: BUILDER_CODE },
     });
   });
 });

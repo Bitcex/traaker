@@ -70,17 +70,21 @@ export async function loadPolymarketAccount() {
 
 export async function loadTradingConfig() {
   const response = await fetch("/api/polymarket/config", { cache: "no-store" });
-  const data = await safeJson<{ ok?: boolean; realTradingEnabled?: boolean; error?: string }>(response);
+  const data = await safeJson<{ ok?: boolean; realTradingEnabled?: boolean; builderReady?: boolean; gaslessReady?: boolean; clobReady?: boolean; missingSetupReason?: string | null; error?: string }>(response);
   if (!response.ok || !data?.ok) {
     throw new Error(data?.error ?? "Trading configuration is unavailable.");
   }
   return {
     realTradingEnabled: Boolean(data.realTradingEnabled),
+    builderReady: Boolean(data.builderReady),
+    gaslessReady: Boolean(data.gaslessReady),
+    clobReady: Boolean(data.clobReady),
+    missingSetupReason: data.missingSetupReason ?? null,
   };
 }
 
 export async function syncBalanceAllowance(input: {
-  signatureType: 2 | 3;
+  signatureType: 3;
   tradingWalletAddress: string;
   assetType?: "COLLATERAL" | "CONDITIONAL";
   tokenId?: string;
@@ -120,9 +124,16 @@ export async function ensureTradingReady(input: {
     throw new Error("Connect a wallet before trading.");
   }
   input.onProgress?.("checking-wallet");
+  const config = await loadTradingConfig();
+  if (!config.builderReady || !config.clobReady) {
+    throw new Error(config.missingSetupReason ?? "Trading configuration is unavailable.");
+  }
   const status = await getDepositWalletStatus(input.address as Address, input.publicClient as PublicClient);
   let depositWalletAddress: string = status.depositWallet;
   if (!status.initialized) {
+    if (!config.gaslessReady) {
+      throw new Error(config.missingSetupReason ?? "Gasless trading is not configured on server.");
+    }
     input.onProgress?.("initializing-trading-wallet");
     const relayClient = createRelayClient(input.walletClient as WalletClient);
     depositWalletAddress = await ensureDepositWalletDeployed(relayClient);
@@ -134,6 +145,9 @@ export async function ensureTradingReady(input: {
 
   if (input.side === "Buy" && balance.usdc.balance <= 0) {
     throw new Error("Polymarket deposit wallet has no USDC balance. Fund the wallet before trading.");
+  }
+  if (status.initialized && (!balance.usdc.hasExchangeAllowance || !balance.usdc.hasCtfAllowance) && !config.gaslessReady) {
+    throw new Error(config.missingSetupReason ?? "Gasless trading is not configured on server.");
   }
 
   const { exchange, conditionalTokens, collateral } = getPolymarketExchangeConfig(Boolean(input.negRisk));

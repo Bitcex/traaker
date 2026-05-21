@@ -1,24 +1,14 @@
 import "server-only";
 
 import { createHmac } from "node:crypto";
+import { requireClobAuth, requireBuilderCode } from "./polymarketRuntimeConfig";
 
 export const getServerBuilderCode = () => {
-  const builderCode = process.env.POLYMARKET_BUILDER_CODE?.trim();
-  if (!builderCode || !/^0x[0-9a-fA-F]{64}$/.test(builderCode)) {
-    throw new Error("POLYMARKET_BUILDER_CODE is missing or invalid. Expected bytes32 hex string.");
-  }
-  return builderCode;
+  return requireBuilderCode();
 };
 
 export const getPolymarketServerCreds = () => {
-  const address = process.env.POLYMARKET_ADDRESS?.trim();
-  const key = process.env.POLYMARKET_API_KEY?.trim();
-  const secret = process.env.POLYMARKET_SECRET?.trim();
-  const passphrase = process.env.POLYMARKET_PASSPHRASE?.trim();
-  if (!address || !key || !secret || !passphrase) {
-    throw new Error("Missing POLYMARKET_ADDRESS, POLYMARKET_API_KEY, POLYMARKET_SECRET, or POLYMARKET_PASSPHRASE.");
-  }
-  return { address, key, secret, passphrase };
+  return requireClobAuth();
 };
 
 const decodeBase64Url = (secret: string) => {

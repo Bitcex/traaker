@@ -1,0 +1,136 @@
+const BYTES32_RE = /^0x[0-9a-fA-F]{64}$/;
+const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
+
+export type PolymarketRuntimeConfigSummary = {
+  builderReady: boolean;
+  gaslessReady: boolean;
+  clobReady: boolean;
+  missingSetupReason: string | null;
+  realTradingEnabled: boolean;
+};
+
+export type PolymarketRuntimeConfigDetails = PolymarketRuntimeConfigSummary & {
+  rpcReady: boolean;
+  builderCode: string | null;
+  relayerApiKeyAddress: string | null;
+  clobAccountAddress: string | null;
+  hasClobCreds: boolean;
+  hasRelayerCreds: boolean;
+};
+
+type ConfigIssue = {
+  key: "builder" | "relayer" | "clob" | "rpc";
+  message: string;
+};
+
+const env = (name: string) => process.env[name]?.trim() ?? "";
+
+export function getPolymarketRuntimeConfigDetails(): PolymarketRuntimeConfigDetails {
+  const builderCode = env("POLYMARKET_BUILDER_CODE") || null;
+  const relayerApiKey = env("RELAYER_API_KEY") || null;
+  const relayerApiKeyAddress = env("RELAYER_API_KEY_ADDRESS") || null;
+  const rpcUrl = env("POLYMARKET_RPC_URL") || null;
+  const clobAccountAddress = env("POLYMARKET_ADDRESS") || null;
+  const clobApiKey = env("POLYMARKET_API_KEY") || null;
+  const clobSecret = env("POLYMARKET_SECRET") || null;
+  const clobPassphrase = env("POLYMARKET_PASSPHRASE") || null;
+
+  const builderReady = Boolean(builderCode && BYTES32_RE.test(builderCode));
+  const hasRelayerCreds = Boolean(relayerApiKey && relayerApiKeyAddress && ADDRESS_RE.test(relayerApiKeyAddress));
+  const hasClobCreds = Boolean(clobAccountAddress && ADDRESS_RE.test(clobAccountAddress) && clobApiKey && clobSecret && clobPassphrase);
+  const rpcReady = Boolean(rpcUrl && /^https?:\/\//i.test(rpcUrl));
+
+  const issues: ConfigIssue[] = [];
+  if (!builderCode) {
+    issues.push({ key: "builder", message: "Builder code is missing. Attach a bytes32 builder code to every order." });
+  } else if (!BYTES32_RE.test(builderCode)) {
+    issues.push({ key: "builder", message: "Builder code is invalid. Expected a bytes32 hex string." });
+  }
+
+  if (!hasRelayerCreds) {
+    issues.push({
+      key: "relayer",
+      message: "Gasless trading is not configured on server.",
+    });
+  }
+
+  if (!hasClobCreds) {
+    issues.push({
+      key: "clob",
+      message: "CLOB trading is not configured on server.",
+    });
+  }
+
+  if (!rpcReady) {
+    issues.push({
+      key: "rpc",
+      message: "RPC URL is missing or invalid.",
+    });
+  }
+
+  return {
+    builderReady,
+    gaslessReady: hasRelayerCreds && rpcReady,
+    clobReady: builderReady && hasClobCreds,
+    missingSetupReason: issues[0]?.message ?? null,
+    realTradingEnabled: process.env.ENABLE_REAL_TRADING === "true",
+    rpcReady,
+    builderCode,
+    relayerApiKeyAddress,
+    clobAccountAddress,
+    hasClobCreds,
+    hasRelayerCreds,
+  };
+}
+
+export function getPolymarketRuntimeConfigSummary(): PolymarketRuntimeConfigSummary {
+  const details = getPolymarketRuntimeConfigDetails();
+  return {
+    builderReady: details.builderReady,
+    gaslessReady: details.gaslessReady,
+    clobReady: details.clobReady,
+    missingSetupReason: details.missingSetupReason,
+    realTradingEnabled: details.realTradingEnabled,
+  };
+}
+
+export function requireBuilderCode() {
+  const builderCode = env("POLYMARKET_BUILDER_CODE");
+  if (!builderCode) {
+    throw new Error("Builder code is missing on the server.");
+  }
+  if (!BYTES32_RE.test(builderCode)) {
+    throw new Error("Builder code is invalid. Expected a bytes32 hex string.");
+  }
+  return builderCode;
+}
+
+export function requireRelayerAuth() {
+  const relayerApiKey = env("RELAYER_API_KEY");
+  const relayerApiKeyAddress = env("RELAYER_API_KEY_ADDRESS");
+  if (!relayerApiKey || !relayerApiKeyAddress) {
+    throw new Error("Gasless trading is not configured on server.");
+  }
+  if (!ADDRESS_RE.test(relayerApiKeyAddress)) {
+    throw new Error("RELAYER_API_KEY_ADDRESS is invalid. Expected an Ethereum address.");
+  }
+  const rpcUrl = env("POLYMARKET_RPC_URL");
+  if (!rpcUrl || !/^https?:\/\//i.test(rpcUrl)) {
+    throw new Error("RPC URL is missing or invalid.");
+  }
+  return { relayerApiKey, relayerApiKeyAddress, rpcUrl };
+}
+
+export function requireClobAuth() {
+  const account = env("POLYMARKET_ADDRESS");
+  const key = env("POLYMARKET_API_KEY");
+  const secret = env("POLYMARKET_SECRET");
+  const passphrase = env("POLYMARKET_PASSPHRASE");
+  if (!account || !key || !secret || !passphrase) {
+    throw new Error("CLOB trading is not configured on server.");
+  }
+  if (!ADDRESS_RE.test(account)) {
+    throw new Error("POLYMARKET_ADDRESS is invalid. Expected an Ethereum address.");
+  }
+  return { address: account, key, secret, passphrase };
+}

@@ -48,13 +48,13 @@ export async function fetchBuilderCode() {
   const localBuilderCode = getBuilderCode();
   if (localBuilderCode) return assertBuilderCodeReady(localBuilderCode);
 
-  const response = await fetch("/api/polymarket/config", {
+  const response = await fetch("/api/polymarket/builder-code", {
     headers: { Accept: "application/json" },
     cache: "no-store",
   });
   const data = await safeJson<ConfigResponse>(response);
   if (!response.ok || !data?.ok || !data.builderCode) {
-    throw new Error(data?.error ?? "Polymarket builder code is not configured.");
+    throw new Error(data?.error ?? "Builder code is missing or invalid.");
   }
   return assertBuilderCodeReady(data.builderCode);
 }

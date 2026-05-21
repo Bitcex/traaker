@@ -29,6 +29,7 @@ export const createRelayClient = (walletClient: WalletClient, txType: RelayerTxT
 
 type RelayerSubmitResponse = {
   ok?: boolean;
+  code?: string;
   transactionID?: string;
   transactionId?: string;
   id?: string;
@@ -56,6 +57,9 @@ const submitRelayerRequest = async (request: object): Promise<RelayerSubmitRespo
       upstream?.error ??
       data?.error ??
       `Relayer request failed (${res.status}).`;
+    if (data?.code === "GASLESS_TRADING_NOT_CONFIGURED" || /gasless trading is not configured/i.test(message)) {
+      throw new Error("Gasless trading is not configured on server.");
+    }
     throw new Error(message);
   }
   return data;

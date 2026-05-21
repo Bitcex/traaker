@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { BuilderSigner } from "@polymarket/builder-signing-sdk";
+import { requireRelayerAuth } from "@/lib/server/polymarketRuntimeConfig";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -14,14 +14,6 @@ const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const HEX_RE = /^0x[0-9a-fA-F]*$/;
 const HEX_65_BYTE_SIGNATURE_RE = /^0x[0-9a-fA-F]{130}$/;
 const DEPOSIT_WALLET_TYPES = new Set(["WALLET", "WALLET-CREATE"]);
-
-const readBuilderCredentials = () => {
-  const key = process.env.POLYMARKET_BUILDER_API_KEY?.trim();
-  const secret = process.env.POLYMARKET_BUILDER_SECRET?.trim();
-  const passphrase = process.env.POLYMARKET_BUILDER_PASSPHRASE?.trim();
-  if (!key || !secret || !passphrase) return null;
-  return { key, secret, passphrase };
-};
 
 function validatePayload(payload: Record<string, unknown>) {
   const type = typeof payload.type === "string" ? payload.type : null;
@@ -107,10 +99,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Unexpected auth headers." }, { status: 400, headers: { "Cache-Control": "no-store" } });
   }
 
-  const creds = readBuilderCredentials();
-  if (!creds) {
+  let relayerAuth: ReturnType<typeof requireRelayerAuth>;
+  try {
+    relayerAuth = requireRelayerAuth();
+  } catch (error) {
     return NextResponse.json(
-      { ok: false, error: "Missing Polymarket builder relayer credentials on server." },
+      {
+        ok: false,
+        code: "GASLESS_TRADING_NOT_CONFIGURED",
+        error: error instanceof Error ? error.message : "Gasless trading is not configured on server.",
+      },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
   }
@@ -131,14 +129,13 @@ export async function POST(request: NextRequest) {
   }
 
   const body = JSON.stringify(payload);
-  const builderHeaders = new BuilderSigner(creds).createBuilderHeaderPayload("POST", "/submit", body);
-
   try {
     const upstream = await fetch(RELAYER_SUBMIT_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...builderHeaders,
+        RELAYER_API_KEY: relayerAuth.relayerApiKey,
+        RELAYER_API_KEY_ADDRESS: relayerAuth.relayerApiKeyAddress,
       },
       body,
     });

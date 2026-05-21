@@ -127,7 +127,22 @@ export default function PortfolioClient() {
         const configResponse = await fetch("/api/polymarket/config", { cache: "no-store" });
         const configData = await configResponse.json().catch(() => null);
         if (!configResponse.ok || !configData?.ok) {
-          throw new Error(configData?.error ?? "Trading configuration is unavailable.");
+          setBalance(emptyBalance);
+          setPositions(fallbackPositions);
+          setOpenOrders([]);
+          setTrades([]);
+          setError("");
+          setNotice((configData?.error as string | undefined) ?? "Trading configuration is unavailable.");
+          return;
+        }
+        if (!configData.clobReady) {
+          setBalance(emptyBalance);
+          setPositions(fallbackPositions);
+          setOpenOrders([]);
+          setTrades([]);
+          setError("");
+          setNotice(configData.missingSetupReason ?? "Trading configuration is unavailable.");
+          return;
         }
 
         const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });
@@ -217,7 +232,22 @@ export default function PortfolioClient() {
       const configResponse = await fetch("/api/polymarket/config", { cache: "no-store" });
       const configData = await configResponse.json().catch(() => null);
       if (!configResponse.ok || !configData?.ok) {
-        throw new Error(configData?.error ?? "Trading configuration is unavailable.");
+        setBalance(emptyBalance);
+        setOpenOrders([]);
+        setTrades([]);
+        setPositions(await getPositions());
+        setError("");
+        setNotice((configData?.error as string | undefined) ?? "Trading configuration is unavailable.");
+        return;
+      }
+      if (!configData.clobReady) {
+        setBalance(emptyBalance);
+        setOpenOrders([]);
+        setTrades([]);
+        setPositions(await getPositions());
+        setError("");
+        setNotice(configData.missingSetupReason ?? "Trading configuration is unavailable.");
+        return;
       }
 
       const accountResponse = await fetch("/api/polymarket/account", { cache: "no-store" });

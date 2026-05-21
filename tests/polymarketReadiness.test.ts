@@ -98,6 +98,21 @@ describe("polymarket readiness", () => {
     ).toBeNull();
   });
 
+  it("does not block trading when only gasless setup is missing", () => {
+    expect(
+      getTradeDisabledReason({
+        configReady: true,
+        configError: "Gasless trading is not configured on server.",
+        realTradingEnabled: true,
+        isConnected: true,
+        chainId: 137,
+        depositWalletInitialized: false,
+        balance: readyBalance,
+        quoteFresh: true,
+      }),
+    ).toBeNull();
+  });
+
   it("does not require fresh account data before enabling live trading", () => {
     expect(
       getTradeDisabledReason({

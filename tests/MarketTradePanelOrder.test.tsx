@@ -48,7 +48,7 @@ vi.mock("@/lib/polymarket/tradeSetup", () => ({
 
 vi.mock("@/lib/polymarket/client", () => ({
   createSignerClient: mocks.createSignerClient,
-  SignatureTypeV2: { POLY_1271: 2 },
+  SignatureTypeV2: { POLY_1271: 3 },
 }));
 
 vi.mock("@/lib/polymarket/orders", async () => {
@@ -103,7 +103,7 @@ describe("MarketTradePanel orders", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/polymarket/config"))
-          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderReady: true, gaslessReady: true, clobReady: true, missingSetupReason: null }), { status: 200 });
         if (url.includes("/api/polymarket/account"))
           return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
         return new Response(JSON.stringify({}), { status: 200 });
@@ -120,7 +120,7 @@ describe("MarketTradePanel orders", () => {
     expect(mocks.createSignerClient).toHaveBeenCalledWith(
       expect.objectContaining({
         signer: mocks.walletClient,
-        signatureType: 2,
+        signatureType: 3,
         funderAddress: "0xdeadbeef",
       }),
     );
@@ -151,7 +151,7 @@ describe("MarketTradePanel orders", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/polymarket/config"))
-          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderReady: true, gaslessReady: true, clobReady: true, missingSetupReason: null }), { status: 200 });
         if (url.includes("/api/polymarket/account")) return new Response(JSON.stringify({ ok: true }), { status: 200 });
         return new Response(JSON.stringify({}), { status: 200 });
       }),
@@ -191,7 +191,7 @@ describe("MarketTradePanel orders", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/polymarket/config"))
-          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderReady: true, gaslessReady: true, clobReady: true, missingSetupReason: null }), { status: 200 });
         if (url.includes("/api/polymarket/account"))
           return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
         return new Response(JSON.stringify({}), { status: 200 });
@@ -241,7 +241,7 @@ describe("MarketTradePanel orders", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("/api/polymarket/config"))
-          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderCode: "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }), { status: 200 });
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderReady: true, gaslessReady: true, clobReady: true, missingSetupReason: null }), { status: 200 });
         if (url.includes("/api/polymarket/account"))
           return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
         return new Response(JSON.stringify({}), { status: 200 });
