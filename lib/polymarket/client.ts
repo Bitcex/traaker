@@ -8,7 +8,9 @@ import {
 import type { WalletClient } from "viem";
 
 export const POLYGON_CHAIN_ID = Chain.POLYGON;
-export const POLYMARKET_HOST = process.env.POLYMARKET_HOST || "https://clob.polymarket.com";
+export const POLYMARKET_CLOB_URL =
+  process.env.POLYMARKET_CLOB_URL || process.env.POLYMARKET_HOST || "https://clob.polymarket.com";
+export const POLYMARKET_HOST = POLYMARKET_CLOB_URL;
 
 export type PolymarketClientInput = {
   signer?: WalletClient;
@@ -26,7 +28,7 @@ export function getBuilderCode() {
 export function createPolymarketClient(input: PolymarketClientInput = {}) {
   const builderCode = input.builderCode ?? getBuilderCode();
   const options: ClobClientOptions = {
-    host: POLYMARKET_HOST,
+    host: POLYMARKET_CLOB_URL,
     chain: POLYGON_CHAIN_ID,
     signer: input.signer,
     creds: input.creds,

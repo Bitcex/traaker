@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { POLYMARKET_HOST } from "@/lib/polymarket/client";
+import { POLYMARKET_CLOB_URL } from "@/lib/polymarket/client";
 import { buildL2Headers } from "@/lib/server/polymarketAuth";
 import { logError } from "@/lib/server/logger";
 
@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 async function signedGet(path: string) {
-  const response = await fetch(`${POLYMARKET_HOST}${path}`, {
+  const response = await fetch(`${POLYMARKET_CLOB_URL}${path}`, {
     method: "GET",
     headers: buildL2Headers({ method: "GET", requestPath: path }),
   });

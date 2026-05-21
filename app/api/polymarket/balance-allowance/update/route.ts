@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-const CLOB_HOST = process.env.POLYMARKET_HOST ?? "https://clob.polymarket.com";
+const CLOB_HOST = process.env.POLYMARKET_CLOB_URL ?? process.env.POLYMARKET_HOST ?? "https://clob.polymarket.com";
 const ASSET_TYPES = new Set(["COLLATERAL", "CONDITIONAL"]);
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 

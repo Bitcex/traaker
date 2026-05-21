@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { POLYMARKET_HOST } from "@/lib/polymarket/client";
+import { POLYMARKET_CLOB_URL } from "@/lib/polymarket/client";
 import { buildL2Headers } from "@/lib/server/polymarketAuth";
 import { logError } from "@/lib/server/logger";
 import { isRealTradingEnabled } from "@/lib/server/tradingConfig";
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
   const body = JSON.stringify({ orderID: parsed.data.orderId });
   const requestPath = "/order";
   try {
-    const response = await fetch(`${POLYMARKET_HOST}${requestPath}`, {
+    const response = await fetch(`${POLYMARKET_CLOB_URL}${requestPath}`, {
       method: "DELETE",
       headers: {
         "Content-Type": "application/json",

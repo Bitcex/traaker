@@ -27,12 +27,12 @@ Create `.env` from `.env.example` and set:
 
 ```bash
 POLYMARKET_BUILDER_CODE="0xYOUR_BYTES32_BUILDER_CODE"
-POLYMARKET_HOST="https://clob.polymarket.com"
+POLYMARKET_CLOB_URL="https://clob.polymarket.com"
 POLYMARKET_ADDRESS="0xYOUR_POLYMARKET_AUTH_ADDRESS"
 POLYMARKET_API_KEY="your-server-l2-api-key"
 POLYMARKET_SECRET="your-server-l2-secret"
 POLYMARKET_PASSPHRASE="your-server-l2-passphrase"
-POLYGON_RPC_URL="https://polygon-rpc.com"
+POLYMARKET_RPC_URL="https://polygon-rpc.com"
 ENABLE_REAL_TRADING="false"
 NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=""
 ```
@@ -41,7 +41,7 @@ NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID=""
 
 `POLYMARKET_ADDRESS`, `POLYMARKET_API_KEY`, `POLYMARKET_SECRET`, and `POLYMARKET_PASSPHRASE` are server-only CLOB L2 auth values used to post signed orders and read account state. They are never exposed to browser code.
 
-`POLYGON_RPC_URL` should point at a reliable Polygon mainnet RPC. The UI and trading flow enforce Polygon `chainId 137`.
+`POLYMARKET_RPC_URL` should point at a reliable Polygon mainnet RPC. The UI and trading flow enforce Polygon `chainId 137`.
 
 `ENABLE_REAL_TRADING` defaults to disabled unless explicitly set to `true`. With the default `false`, the trade ticket runs dry-run validation only and server order/cancel routes reject live CLOB mutations.
 

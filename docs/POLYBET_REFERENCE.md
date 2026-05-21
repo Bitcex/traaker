@@ -46,12 +46,12 @@ Traak now follows Polybet’s credential separation:
 ## Required Env
 
 - `POLYMARKET_BUILDER_CODE`
-- `POLYMARKET_HOST`
+- `POLYMARKET_CLOB_URL`
 - `POLYMARKET_ADDRESS`
 - `POLYMARKET_API_KEY`
 - `POLYMARKET_SECRET`
 - `POLYMARKET_PASSPHRASE`
-- `POLYGON_RPC_URL`
+- `POLYMARKET_RPC_URL`
 
 Existing Traak database/admin env vars remain only for existing portfolio persistence/admin routes.
 

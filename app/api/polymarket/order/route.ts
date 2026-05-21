@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { POLYMARKET_HOST } from "@/lib/polymarket/client";
+import { POLYMARKET_CLOB_URL } from "@/lib/polymarket/client";
 import { normalizeSignedOrder } from "@/lib/polymarket/normalizeSignedOrder";
 import { buildL2Headers, getPolymarketServerCreds, getServerBuilderCode, redactCredential } from "@/lib/server/polymarketAuth";
 import { logError, logInfo } from "@/lib/server/logger";
@@ -119,7 +119,7 @@ export async function POST(request: Request) {
   });
 
   try {
-    const response = await fetch(`${POLYMARKET_HOST}${requestPath}`, {
+    const response = await fetch(`${POLYMARKET_CLOB_URL}${requestPath}`, {
       method: "POST",
       headers,
       body,
