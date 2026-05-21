@@ -48,10 +48,13 @@ export type MarketOutcomeOption = {
   price: number;
   priceCents: number;
   tokenId?: string;
+  bestBid?: number;
+  bestAsk?: number;
 };
 
 type RawOutcomeMarket = TerminalMarket & {
   outcomePrices?: unknown;
+  clobTokenIds?: unknown;
   bestBid?: number;
   bestAsk?: number;
   lastTradePrice?: number;
@@ -167,15 +170,6 @@ export const cleanOutcomeName = (name: string, marketTitle: string) => {
   return cleaned || "Market";
 };
 
-function matchupOutcomeName(marketTitle: string, index: number) {
-  const side = marketTitle
-    .replace(/\?.*$/, "")
-    .split(/\s+(?:vs\.?|v\.?|at)\s+/i)
-    .map((item) => item.replace(genericWords, " ").replace(/\s+/g, " ").trim())
-    .filter(Boolean)[index];
-  return side || null;
-}
-
 const compactOutcomeName = (name: string) => {
   const cleaned = name.replace(/\s+/g, " ").trim();
   if (cleaned.length <= 13) return cleaned;
@@ -205,6 +199,23 @@ const parseNumberArray = (value: unknown) => {
     return [];
   }
 };
+
+function fallbackOutcomeLabel(index: number) {
+  return `Outcome ${index + 1}`;
+}
+
+function normalizeOutcomeLabel(name: string, index: number) {
+  return name.replace(/\s+/g, " ").trim() || fallbackOutcomeLabel(index);
+}
+
+function dedupeOutcomeLabel(label: string, index: number, seen: Set<string>) {
+  let nextLabel = label;
+  if (seen.has(nextLabel.toLowerCase())) {
+    nextLabel = `${nextLabel} ${index + 1}`;
+  }
+  seen.add(nextLabel.toLowerCase());
+  return nextLabel;
+}
 
 function getLogoAsset(logoUrl?: string) {
   if (!logoUrl || typeof window === "undefined") return null;
@@ -326,19 +337,32 @@ const trendScoreForMarket = (market: TerminalMarket, volume: number) =>
   Math.log10(safePositiveNumber(volume) + 1);
 
 export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption[] {
+  if (market.outcomeOptions?.length) {
+    const seen = new Set<string>();
+    return market.outcomeOptions.map((outcome, index) => {
+      const name = dedupeOutcomeLabel(normalizeOutcomeLabel(outcome.name, index), index, seen);
+      const price = clamp01(outcome.price);
+      return {
+        name,
+        price,
+        priceCents: Math.round(price * 100),
+        tokenId: outcome.tokenId,
+        bestBid: Number.isFinite(outcome.bestBid) ? outcome.bestBid : undefined,
+        bestAsk: Number.isFinite(outcome.bestAsk) ? outcome.bestAsk : undefined,
+      };
+    });
+  }
+
   const arrayOutcomes = parseStringArray(market.outcomes);
   const rawPrices = parseNumberArray(market.outcomePrices);
+  const rawTokenIds = parseStringArray(market.clobTokenIds);
   const names = arrayOutcomes.length > 0 ? arrayOutcomes : [market.outcomes.yes, market.outcomes.no];
   const prices = rawPrices.length >= names.length ? rawPrices : [market.yesPrice, market.noPrice];
   const seen = new Set<string>();
   return names.map((name, index) => {
     const price = clamp01(prices[index]);
-    const tokenId = index === 0 ? market.tokenIds?.yes : index === 1 ? market.tokenIds?.no : undefined;
-    let label = cleanOutcomeName(name, market.title);
-    if (seen.has(label.toLowerCase())) {
-      label = matchupOutcomeName(market.title, index) ?? `${label} ${index + 1}`;
-    }
-    seen.add(label.toLowerCase());
+    const tokenId = rawTokenIds[index] ?? (index === 0 ? market.tokenIds?.yes : index === 1 ? market.tokenIds?.no : undefined);
+    const label = dedupeOutcomeLabel(normalizeOutcomeLabel(name, index), index, seen);
     return {
       name: label,
       price,
@@ -558,11 +582,16 @@ function outcomeKeyForName(market: TerminalMarket, outcomeName: string) {
 }
 
 function liveOutcomeOptionsForSnapshot(outcomes: MarketOutcomeOption[], market: TerminalMarket) {
+  const normalizedOutcomes = getMarketOutcomes(market);
   return outcomes.map((outcome) => {
+    const normalized = normalizedOutcomes.find((item) => item.tokenId && item.tokenId === outcome.tokenId) ?? normalizedOutcomes.find((item) => item.name === outcome.name);
     const key = outcomeKeyForName(market, outcome.name);
-    const price = key === "yes" ? market.yesPrice : key === "no" ? market.noPrice : outcome.price;
+    const price = normalized?.price ?? (key === "yes" ? market.yesPrice : key === "no" ? market.noPrice : outcome.price);
     return {
       ...outcome,
+      tokenId: normalized?.tokenId ?? outcome.tokenId,
+      bestBid: normalized?.bestBid ?? outcome.bestBid,
+      bestAsk: normalized?.bestAsk ?? outcome.bestAsk,
       price,
       priceCents: Math.round(clamp01(price) * 100),
     };

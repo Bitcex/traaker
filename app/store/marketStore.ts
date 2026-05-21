@@ -23,7 +23,7 @@ export type MarketStoreState = {
   marketsById: Record<string, TerminalMarket>;
   marketValuesById: Record<string, MarketValueState>;
   marketIdsByConditionId: Record<string, string>;
-  marketIdsByAssetId: Record<string, { marketId: string; outcomeKey: "yes" | "no" }>;
+  marketIdsByAssetId: Record<string, { marketId: string; outcomeKey?: "yes" | "no"; outcomeIndex: number; outcomeName: string }>;
   selectedMarketId: string | null;
   connectionState: MarketConnectionState;
   lastUpdateTimestamp: number | null;
@@ -42,9 +42,11 @@ const asNumber = (value: unknown, fallback = Number.NaN) => {
 };
 
 function createMarketValue(market: TerminalMarket, timestamp = Date.now()): MarketValueState {
+  const optionPrices = Object.fromEntries((market.outcomeOptions ?? []).map((outcome) => [outcome.name, outcome.price]));
   return {
     marketId: market.id,
     outcomePrices: {
+      ...optionPrices,
       [market.outcomes.yes]: market.yesPrice,
       [market.outcomes.no]: market.noPrice,
       yes: market.yesPrice,
@@ -83,8 +85,22 @@ function rebuildIndexes(marketsById: Record<string, TerminalMarket>) {
 
   for (const market of Object.values(marketsById)) {
     marketIdsByConditionId[market.conditionId] = market.id;
-    if (market.tokenIds.yes) marketIdsByAssetId[market.tokenIds.yes] = { marketId: market.id, outcomeKey: "yes" };
-    if (market.tokenIds.no) marketIdsByAssetId[market.tokenIds.no] = { marketId: market.id, outcomeKey: "no" };
+    const options =
+      market.outcomeOptions?.length
+        ? market.outcomeOptions
+        : [
+            { name: market.outcomes.yes, tokenId: market.tokenIds.yes, price: market.yesPrice },
+            { name: market.outcomes.no, tokenId: market.tokenIds.no, price: market.noPrice },
+          ];
+    options.forEach((outcome, index) => {
+      if (!outcome.tokenId) return;
+      marketIdsByAssetId[outcome.tokenId] = {
+        marketId: market.id,
+        outcomeKey: index === 0 ? "yes" : index === 1 ? "no" : undefined,
+        outcomeIndex: index,
+        outcomeName: outcome.name,
+      };
+    });
   }
 
   return { marketIdsByConditionId, marketIdsByAssetId };
@@ -160,13 +176,26 @@ function applyAssetPricePatch(patch: PricePatch) {
   if (!currentMarket) return;
 
   const currentValue = state.marketValuesById[currentMarket.id] ?? createMarketValue(currentMarket);
-  const previousPrice = assetMapping.outcomeKey === "yes" ? currentMarket.yesPrice : currentMarket.noPrice;
+  const previousPrice =
+    currentMarket.outcomeOptions?.[assetMapping.outcomeIndex]?.price ??
+    (assetMapping.outcomeKey === "yes" ? currentMarket.yesPrice : assetMapping.outcomeKey === "no" ? currentMarket.noPrice : 0.5);
   const nextPrice = clampPrice(patch.lastTradePrice ?? patch.price ?? patch.bestAsk ?? patch.bestBid ?? previousPrice, previousPrice);
   const timestamp = patch.timestamp ?? Date.now();
+  const nextOutcomeOptions = currentMarket.outcomeOptions?.map((outcome, index) =>
+    index === assetMapping.outcomeIndex
+      ? {
+          ...outcome,
+          price: nextPrice,
+          bestBid: patch.bestBid ?? outcome.bestBid,
+          bestAsk: patch.bestAsk ?? outcome.bestAsk,
+        }
+      : outcome,
+  );
   const nextMarket: TerminalMarket = {
     ...currentMarket,
     yesPrice: assetMapping.outcomeKey === "yes" ? nextPrice : currentMarket.yesPrice,
     noPrice: assetMapping.outcomeKey === "no" ? nextPrice : currentMarket.noPrice,
+    outcomeOptions: nextOutcomeOptions ?? currentMarket.outcomeOptions,
     bestBid: patch.bestBid ?? currentMarket.bestBid,
     bestAsk: patch.bestAsk ?? currentMarket.bestAsk,
     lastTradePrice: patch.lastTradePrice ?? currentMarket.lastTradePrice,
@@ -180,6 +209,7 @@ function applyAssetPricePatch(patch: PricePatch) {
         ...currentValue.outcomePrices,
         [nextMarket.outcomes.yes]: nextMarket.yesPrice,
         [nextMarket.outcomes.no]: nextMarket.noPrice,
+        [assetMapping.outcomeName]: nextPrice,
         yes: nextMarket.yesPrice,
         no: nextMarket.noPrice,
       },

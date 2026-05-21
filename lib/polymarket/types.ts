@@ -32,6 +32,13 @@ export type TerminalMarket = {
     yes: string;
     no: string;
   };
+  outcomeOptions?: Array<{
+    name: string;
+    price: number;
+    tokenId: string;
+    bestBid?: number;
+    bestAsk?: number;
+  }>;
   image?: string;
   source: "polymarket" | "mock";
 };

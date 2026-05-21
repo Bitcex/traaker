@@ -22,14 +22,22 @@ const formatCents = (price: number) => `${Math.round(Math.max(0, Math.min(1, Num
 const formatSeconds = (value: number | null) => (value === null ? "Live" : `Quote updated ${value}s ago`);
 
 function priceForSide(market: MarketBubbleNode, outcomeIndex: number, side: TradeSide) {
+  const outcome = market.outcomes[outcomeIndex];
+  const outcomeBid = Number.isFinite(outcome?.bestBid) ? outcome?.bestBid : undefined;
+  const outcomeAsk = Number.isFinite(outcome?.bestAsk) ? outcome?.bestAsk : undefined;
+  if (side === "Buy" && Number.isFinite(outcomeAsk)) return outcomeAsk;
+  if (side === "Sell" && Number.isFinite(outcomeBid)) return outcomeBid;
   const bestBid = Number.isFinite(market.bestBid) ? market.bestBid : undefined;
   const bestAsk = Number.isFinite(market.bestAsk) ? market.bestAsk : undefined;
-  if (outcomeIndex === 0) return side === "Buy" ? bestAsk : bestBid;
+  if (outcomeIndex === 0) {
+    const quote = side === "Buy" ? bestAsk : bestBid;
+    if (Number.isFinite(quote)) return quote;
+  }
   if (outcomeIndex === 1) {
     const inverse = side === "Buy" ? bestBid : bestAsk;
-    return Number.isFinite(inverse) ? 1 - (inverse as number) : undefined;
+    if (Number.isFinite(inverse)) return 1 - (inverse as number);
   }
-  return undefined;
+  return Number.isFinite(outcome?.price) ? outcome?.price : undefined;
 }
 
 function extractOrderId(response: unknown) {

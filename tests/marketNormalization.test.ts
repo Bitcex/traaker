@@ -43,6 +43,76 @@ describe("normalizeGammaMarket", () => {
     expect(market?.spread).toBeCloseTo(0.02);
   });
 
+  it("keeps real multi-outcome names, prices, and token ids together", () => {
+    const market = normalizeGammaMarket({
+      ...validSportsMarket,
+      id: "ucl-winner",
+      conditionId: "0xucl",
+      question: "UEFA Champions League Winner",
+      slug: "uefa-champions-league-winner",
+      outcomes: JSON.stringify(["PSG", "Arsenal"]),
+      outcomePrices: JSON.stringify([0.59, 0.43]),
+      clobTokenIds: JSON.stringify(["psg-token", "arsenal-token"]),
+      bestAsk: undefined,
+      bestBid: undefined,
+      tags: JSON.stringify([{ label: "Soccer" }, { label: "Champions League" }]),
+    });
+
+    expect(market).not.toBeNull();
+    expect(market?.outcomes.yes).toBe("PSG");
+    expect(market?.outcomes.no).toBe("Arsenal");
+    expect(market?.yesPrice).toBe(0.59);
+    expect(market?.noPrice).toBe(0.43);
+    expect(market?.tokenIds.yes).toBe("psg-token");
+    expect(market?.tokenIds.no).toBe("arsenal-token");
+    expect(market?.outcomeOptions).toEqual([
+      { name: "PSG", price: 0.59, tokenId: "psg-token" },
+      { name: "Arsenal", price: 0.43, tokenId: "arsenal-token" },
+    ]);
+  });
+
+  it("uses tokens outcome names when the outcomes array is missing", () => {
+    const market = normalizeGammaMarket({
+      ...validSportsMarket,
+      question: "UEFA Champions League Winner",
+      slug: "uefa-champions-league-winner",
+      outcomes: undefined,
+      outcomePrices: JSON.stringify([0.59, 0.43]),
+      clobTokenIds: undefined,
+      tokens: [
+        { outcome: "PSG", token_id: "psg-token" },
+        { outcome: "Arsenal", token_id: "arsenal-token" },
+      ],
+      tags: JSON.stringify([{ label: "Soccer" }, { label: "Champions League" }]),
+    });
+
+    expect(market).not.toBeNull();
+    expect(market?.outcomeOptions?.map((outcome) => `${outcome.name}:${outcome.price}:${outcome.tokenId}`)).toEqual([
+      "PSG:0.59:psg-token",
+      "Arsenal:0.43:arsenal-token",
+    ]);
+  });
+
+  it("prefers token outcome names over title-derived fallback outcomes", () => {
+    const market = normalizeGammaMarket({
+      ...validSportsMarket,
+      question: "UEFA Champions League Winner",
+      slug: "uefa-champions-league-winner",
+      outcomes: JSON.stringify(["UEFA", "UEFA 2"]),
+      outcomePrices: JSON.stringify([0.59, 0.43]),
+      clobTokenIds: JSON.stringify(["psg-token", "arsenal-token"]),
+      tokens: [
+        { outcome: "PSG", token_id: "psg-token" },
+        { outcome: "Arsenal", token_id: "arsenal-token" },
+      ],
+      tags: JSON.stringify([{ label: "Soccer" }, { label: "Champions League" }]),
+    });
+
+    expect(market?.outcomeOptions?.map((outcome) => outcome.name)).toEqual(["PSG", "Arsenal"]);
+    expect(market?.outcomes.yes).toBe("PSG");
+    expect(market?.outcomes.no).toBe("Arsenal");
+  });
+
   it("filters inactive or non-sports markets", () => {
     expect(normalizeGammaMarket({ ...validSportsMarket, question: "Will it rain?", slug: "weather-rain", tags: JSON.stringify([]) })).toBeNull();
     expect(normalizeGammaMarket({ ...validSportsMarket, active: false })).toBeNull();

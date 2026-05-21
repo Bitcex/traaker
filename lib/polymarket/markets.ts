@@ -54,6 +54,15 @@ type MarketEligibility = {
   outcomes: string[];
   prices: number[];
   tokenIds: string[];
+  outcomeOptions: NormalizedMarketOutcome[];
+};
+
+type NormalizedMarketOutcome = {
+  name: string;
+  price: number;
+  tokenId: string;
+  bestBid?: number;
+  bestAsk?: number;
 };
 
 type MarketDiscoveryCounts = {
@@ -198,6 +207,80 @@ function parseNumberArray(value: unknown): number[] {
   return parsed.every((item) => Number.isFinite(item)) ? parsed : [];
 }
 
+function tokenRecordAt(tokens: unknown[], index: number) {
+  const token = tokens[index];
+  return token && typeof token === "object" ? (token as Record<string, unknown>) : {};
+}
+
+function tokenOutcomeName(token: Record<string, unknown>) {
+  return asString(pick(token, ["outcome", "name", "label", "o"], ""), "");
+}
+
+function tokenIdFromRecord(token: Record<string, unknown>) {
+  return asString(pick(token, ["token_id", "tokenID", "asset_id", "assetId", "id", "t"], ""), "");
+}
+
+function tokenPrice(token: Record<string, unknown>) {
+  return asNumber(pick(token, ["price", "lastPrice", "last_trade_price", "lastTradePrice"], Number.NaN), Number.NaN);
+}
+
+function fallbackOutcomeName(index: number) {
+  return `Outcome ${index + 1}`;
+}
+
+function normalizeOutcomeText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function isUnhelpfulOutcomeName(name: string, marketTitle: string, index: number) {
+  const normalizedName = normalizeOutcomeText(name);
+  if (!normalizedName) return true;
+  if (/^(yes|no|winner|champion|market|outcome|team|field|other|draw tie)$/.test(normalizedName)) return true;
+  const normalizedTitle = normalizeOutcomeText(marketTitle);
+  if (!normalizedTitle) return false;
+  if (normalizedName === normalizedTitle || normalizedName === `${normalizedTitle} ${index + 1}`) return true;
+  const titleWords = normalizedTitle.split(" ");
+  return normalizedName.split(" ").length <= 2 && titleWords.slice(0, 2).join(" ").startsWith(normalizedName);
+}
+
+function chooseOutcomeName(tokenName: string, rawName: string, marketTitle: string, index: number) {
+  if (tokenName && !isUnhelpfulOutcomeName(tokenName, marketTitle, index)) return tokenName;
+  if (rawName && !isUnhelpfulOutcomeName(rawName, marketTitle, index)) return rawName;
+  return tokenName || rawName || fallbackOutcomeName(index);
+}
+
+function buildOutcomeOptions(raw: GammaMarket) {
+  const title = asString(pick(raw, ["question", "title", "q", "name"]), "");
+  const rawOutcomes = parseStringArray(raw.outcomes);
+  const rawPrices = parseNumberArray(raw.outcomePrices);
+  const rawTokenIds = parseStringArray(raw.clobTokenIds);
+  const tokens = parseArray(raw.tokens);
+  const length = Math.max(rawOutcomes.length, rawPrices.length, rawTokenIds.length, tokens.length);
+
+  const options = Array.from({ length }, (_, index) => {
+    const token = tokenRecordAt(tokens, index);
+    const name = chooseOutcomeName(tokenOutcomeName(token), rawOutcomes[index] ?? "", title, index);
+    const price = rawPrices[index] ?? tokenPrice(token);
+    const tokenId = rawTokenIds[index] || tokenIdFromRecord(token);
+    const bestBid = asNumber(pick(token, ["bestBid", "best_bid"], Number.NaN), Number.NaN);
+    const bestAsk = asNumber(pick(token, ["bestAsk", "best_ask"], Number.NaN), Number.NaN);
+    return {
+      name: name.trim() || fallbackOutcomeName(index),
+      price,
+      tokenId,
+      ...(Number.isFinite(bestBid) ? { bestBid } : {}),
+      ...(Number.isFinite(bestAsk) ? { bestAsk } : {}),
+    };
+  }).filter((option) => option.name && Number.isFinite(option.price) && option.tokenId);
+
+  return {
+    outcomes: options.map((option) => option.name),
+    prices: options.map((option) => option.price),
+    tokenIds: options.map((option) => option.tokenId),
+    outcomeOptions: options,
+  };
+}
+
 function parseDate(value: unknown): Date | null {
   if (value == null) return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
@@ -266,37 +349,35 @@ function getMarketEligibility(raw: GammaMarket): MarketEligibility {
   const eventText = events.map((event) => JSON.stringify(event)).join(" ");
   const tagText = tags.map((tag) => JSON.stringify(tag)).join(" ");
   const haystack = `${title} ${slug} ${eventText} ${tagText} ${pick(raw, ["category", "subcategory"], "")}`.toLowerCase();
-  const outcomes = parseStringArray(raw.outcomes);
-  const prices = parseNumberArray(raw.outcomePrices);
-  const tokenIds = parseStringArray(raw.clobTokenIds);
+  const { outcomes, prices, tokenIds, outcomeOptions } = buildOutcomeOptions(raw);
   const isSports = hasStrictSportsSignal(raw, title, slug, tags, haystack);
   const closed = isClosedLike(raw);
 
   if (!isSports) {
-    return { isSports: false, isOpenSports: false, excludedReason: null, outcomes, prices, tokenIds };
+    return { isSports: false, isOpenSports: false, excludedReason: null, outcomes, prices, tokenIds, outcomeOptions };
   }
 
   if (closed) {
-    return { isSports: true, isOpenSports: false, excludedReason: "closed", outcomes, prices, tokenIds };
+    return { isSports: true, isOpenSports: false, excludedReason: "closed", outcomes, prices, tokenIds, outcomeOptions };
   }
 
   if (raw.active !== true || raw.acceptingOrders === false || raw.tradingEnabled === false) {
-    return { isSports: true, isOpenSports: true, excludedReason: "inactive", outcomes, prices, tokenIds };
+    return { isSports: true, isOpenSports: true, excludedReason: "inactive", outcomes, prices, tokenIds, outcomeOptions };
   }
 
   if (pick(raw, ["enableOrderBook", "enable_order_book"], true) === false) {
-    return { isSports: true, isOpenSports: true, excludedReason: "noOrderbook", outcomes, prices, tokenIds };
+    return { isSports: true, isOpenSports: true, excludedReason: "noOrderbook", outcomes, prices, tokenIds, outcomeOptions };
   }
 
   if (tokenIds.length < 2) {
-    return { isSports: true, isOpenSports: true, excludedReason: "missingClobTokenIds", outcomes, prices, tokenIds };
+    return { isSports: true, isOpenSports: true, excludedReason: "missingClobTokenIds", outcomes, prices, tokenIds, outcomeOptions };
   }
 
   if (outcomes.length < 2 || prices.length < 2 || !prices.some((price) => price > 0.01 && price < 0.99)) {
-    return { isSports: true, isOpenSports: true, excludedReason: "invalidPrices", outcomes, prices, tokenIds };
+    return { isSports: true, isOpenSports: true, excludedReason: "invalidPrices", outcomes, prices, tokenIds, outcomeOptions };
   }
 
-  return { isSports: true, isOpenSports: true, excludedReason: null, outcomes, prices, tokenIds };
+  return { isSports: true, isOpenSports: true, excludedReason: null, outcomes, prices, tokenIds, outcomeOptions };
 }
 
 function inferSport(text: string) {
@@ -693,9 +774,7 @@ export function normalizeGammaMarket(raw: GammaMarket): TerminalMarket | null {
   const outcomes = eligibility.outcomes;
   const prices = eligibility.prices;
   const tokenIds = eligibility.tokenIds;
-  const tokens = parseArray(raw.tokens);
-  const yesToken = (tokens[0] ?? {}) as Record<string, unknown>;
-  const noToken = (tokens[1] ?? {}) as Record<string, unknown>;
+  const outcomeOptions = eligibility.outcomeOptions;
   const yesPrice = asNumber(pick(raw, ["bestAsk", "best_ask", "lastTradePrice", "last_trade_price"], prices[0] ?? 0.5), prices[0] ?? 0.5);
   const noPrice = prices[1] ?? Math.max(0.01, 1 - yesPrice);
   const volume24h = asNumber(pick(raw, ["volume_24hr", "volume24hr", "volume24h", "volumeNum", "volume_num"], 0));
@@ -741,13 +820,14 @@ export function normalizeGammaMarket(raw: GammaMarket): TerminalMarket | null {
       volumeAcceleration: acceleration,
     }),
     outcomes: {
-      yes: outcomes[0] || asString(pick(yesToken, ["outcome", "o"], "YES"), "YES"),
-      no: outcomes[1] || asString(pick(noToken, ["outcome", "o"], "NO"), "NO"),
+      yes: outcomes[0] || fallbackOutcomeName(0),
+      no: outcomes[1] || fallbackOutcomeName(1),
     },
     tokenIds: {
-      yes: tokenIds[0] || asString(pick(yesToken, ["token_id", "tokenID", "asset_id", "t"], "")),
-      no: tokenIds[1] || asString(pick(noToken, ["token_id", "tokenID", "asset_id", "t"], "")),
+      yes: tokenIds[0] || "",
+      no: tokenIds[1] || "",
     },
+    outcomeOptions,
     image: asString(pick(raw, ["image", "icon"], "")),
     source: "polymarket",
   };

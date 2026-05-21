@@ -39,7 +39,38 @@ describe("marketStore", () => {
     expect(state.selectedMarketId).toBe("market-1");
     expect(state.marketsById["market-1"].title).toBe(market.title);
     expect(state.marketValuesById["market-1"].outcomePrices.Lakers).toBe(0.62);
-    expect(state.marketIdsByAssetId["111"]).toEqual({ marketId: "market-1", outcomeKey: "yes" });
+    expect(state.marketIdsByAssetId["111"]).toEqual({ marketId: "market-1", outcomeKey: "yes", outcomeIndex: 0, outcomeName: "Lakers" });
+  });
+
+  it("indexes full outcome token ids and updates the matching outcome price", () => {
+    marketStore.setMarketSnapshots(
+      [
+        {
+          ...market,
+          id: "ucl-winner",
+          conditionId: "ucl-condition",
+          outcomes: { yes: "PSG", no: "Arsenal" },
+          tokenIds: { yes: "psg-token", no: "arsenal-token" },
+          outcomeOptions: [
+            { name: "PSG", price: 0.59, tokenId: "psg-token" },
+            { name: "Arsenal", price: 0.43, tokenId: "arsenal-token" },
+          ],
+        },
+      ],
+      { replace: true },
+    );
+
+    marketStore.applyClobMessage({
+      event_type: "last_trade_price",
+      asset_id: "arsenal-token",
+      price: "0.44",
+      timestamp: "1766789469958",
+    });
+
+    const state = marketStore.getState();
+    expect(state.marketIdsByAssetId["arsenal-token"]).toEqual({ marketId: "ucl-winner", outcomeKey: "no", outcomeIndex: 1, outcomeName: "Arsenal" });
+    expect(state.marketsById["ucl-winner"].outcomeOptions?.[1]).toMatchObject({ name: "Arsenal", price: 0.44, tokenId: "arsenal-token" });
+    expect(state.marketValuesById["ucl-winner"].outcomePrices.Arsenal).toBe(0.44);
   });
 
   it("applies CLOB updates without replacing market identity fields", () => {
@@ -71,4 +102,3 @@ describe("marketStore", () => {
     expect(marketStore.getState().connectionState).toBe("Offline");
   });
 });
-

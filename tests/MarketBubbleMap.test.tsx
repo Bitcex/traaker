@@ -8,6 +8,7 @@ import {
   createBubbleVisualSmoothingState,
   formatCents,
   getFavoredOutcome,
+  getMarketOutcomes,
   layoutBubbleNodes,
   MarketBubbleMap,
   marketToBubbleNode,
@@ -128,6 +129,49 @@ describe("MarketBubbleMap", () => {
   it("extracts the favored outcome and formats cents", () => {
     expect(getFavoredOutcome({ ...market, yesPrice: 0.42, noPrice: 0.58 }).name).toBe("Celtics");
     expect(formatCents(0.755)).toBe("76\u00a2");
+  });
+
+  it("uses real Polymarket multi-outcome names across bubbles, hover, and trade panel", () => {
+    const uefaMarket: TerminalMarket = {
+      ...market,
+      id: "uefa-winner",
+      conditionId: "uefa-condition",
+      slug: "uefa-champions-league-winner",
+      title: "UEFA Champions League Winner",
+      sport: "Soccer",
+      league: "UCL",
+      yesPrice: 0.59,
+      noPrice: 0.43,
+      bestBid: undefined,
+      bestAsk: undefined,
+      outcomes: { yes: "PSG", no: "Arsenal" },
+      tokenIds: { yes: "psg-token", no: "arsenal-token" },
+      outcomeOptions: [
+        { name: "PSG", price: 0.59, tokenId: "psg-token" },
+        { name: "Arsenal", price: 0.43, tokenId: "arsenal-token" },
+      ],
+    };
+    const outcomeLabels = getMarketOutcomes(uefaMarket).map((outcome) => `${outcome.name} ${outcome.priceCents}\u00a2 ${outcome.tokenId}`);
+    const bubble = marketToBubbleNode(uefaMarket);
+    const [node] = layoutBubbleNodes([bubble], 1200, 680, false);
+
+    expect(outcomeLabels).toEqual(["PSG 59\u00a2 psg-token", "Arsenal 43\u00a2 arsenal-token"]);
+    expect(bubble.favoredOutcome).toBe("PSG");
+    expect(bubble.priceCents).toBe(59);
+
+    render(<MarketBubbleMap markets={[uefaMarket]} />);
+
+    fireEvent.mouseMove(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
+    expect(screen.getByText("PSG 59\u00a2")).toBeInTheDocument();
+    expect(screen.queryByText("UEFA 59\u00a2")).not.toBeInTheDocument();
+    expect(screen.queryByText("UEFA 2")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("application"), { clientX: node.x, clientY: node.y });
+    expect(screen.getAllByRole("button", { name: /psg\s+59/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /arsenal\s+43/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /buy psg\s+59/i })).toBeEnabled();
+    expect(screen.getByRole("button", { name: /sell psg\s+59/i })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: /uefa\s+59/i })).not.toBeInTheDocument();
   });
 
   it("cleans generic outcome labels into recognizable names", () => {
