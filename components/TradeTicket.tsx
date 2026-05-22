@@ -33,7 +33,7 @@ export function TradeTicket({
   const [mode, setMode] = useState<TradeMode>("limit");
   const [amount, setAmount] = useState("25");
   const [limitPrice, setLimitPrice] = useState(String(Math.round(market.yesPrice * 100)));
-  const [slippage, setSlippage] = useState("1300");
+  const [slippage, setSlippage] = useState("300");
   const [reviewing, setReviewing] = useState(false);
   const [status, setStatus] = useState<"idle" | "validating" | "submitting" | "pending" | "success" | "error">("idle");
   const [message, setMessage] = useState("");

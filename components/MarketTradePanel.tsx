@@ -15,7 +15,9 @@ const QUOTE_REFRESH_MS = 10_000;
 const QUOTE_TICK_MS = 250;
 const QUOTE_RETRY_MS = 3_000;
 const DEFAULT_SHARES = "10";
-const DEFAULT_SLIPPAGE_BPS = 1_300;
+const DEFAULT_SLIPPAGE_BPS = 300;
+const MAX_SLIPPAGE_BPS = 1_300;
+const SLIPPAGE_PRESETS = [300, 500, 800, 1_300] as const;
 
 type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
@@ -109,6 +111,7 @@ export function MarketTradePanel({
   const [displayMarket, setDisplayMarket] = useState(market);
   const [selectedOutcomeName, setSelectedOutcomeName] = useState(() => selectedOutcomeFromMarket(market)?.name ?? "");
   const [shares, setShares] = useState(DEFAULT_SHARES);
+  const [slippageBps, setSlippageBps] = useState<number>(DEFAULT_SLIPPAGE_BPS);
   const [runtimeConfig, setRuntimeConfig] = useState<RuntimeConfig>({
     realTradingEnabled: false,
     builderReady: false,
@@ -136,6 +139,9 @@ export function MarketTradePanel({
   const selectedOutcomeIndex = Math.max(0, displayMarket.outcomes.findIndex((outcome) => outcome.name === selectedOutcome?.name));
   const buyPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Buy");
   const sellPrice = priceForSide(displayMarket, selectedOutcomeIndex, "Sell");
+  const slippageFactor = slippageBps / 10_000;
+  const maxBuyExecutionPrice = Number.isFinite(buyPrice) ? Math.min(0.99, (buyPrice as number) * (1 + slippageFactor)) : null;
+  const minSellExecutionPrice = Number.isFinite(sellPrice) ? Math.max(0.01, (sellPrice as number) * (1 - slippageFactor)) : null;
   const quoteAgeMs = quoteUpdatedAt === null ? null : Math.max(0, quoteNow - quoteUpdatedAt);
   const quoteIsStale = quoteStatus === "stale" || (quoteAgeMs !== null && quoteAgeMs >= QUOTE_REFRESH_MS);
   const numericShares = Number(shares);
@@ -396,7 +402,7 @@ export function MarketTradePanel({
           tokenID,
           amount: finalOrderValue,
           price: finalPrice as number,
-          slippageBps: DEFAULT_SLIPPAGE_BPS,
+          slippageBps,
           availableBalance,
         });
 
@@ -423,7 +429,7 @@ export function MarketTradePanel({
           tokenID,
           amount: finalOrderValue,
           currentPrice: finalPrice as number,
-          maxSlippageBps: DEFAULT_SLIPPAGE_BPS,
+          maxSlippageBps: slippageBps,
           side: side === "Buy" ? Side.BUY : Side.SELL,
           userUSDCBalance: side === "Buy" ? availableBalance : undefined,
         });
@@ -440,7 +446,7 @@ export function MarketTradePanel({
         setTradeProgress("idle");
       }
     },
-    [chainId, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, runtimeConfig.realTradingEnabled, safeShares, selectedOutcomeName, walletClient],
+    [chainId, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, runtimeConfig.realTradingEnabled, safeShares, selectedOutcomeName, slippageBps, walletClient],
   );
 
   const actionButtons = useMemo(
@@ -449,16 +455,26 @@ export function MarketTradePanel({
         { side: "Buy" as const, price: buyPrice, className: "bg-emerald-400 text-slate-950 hover:bg-emerald-300" },
         { side: "Sell" as const, price: sellPrice, className: "bg-rose-400 text-slate-950 hover:bg-rose-300" },
       ]).map((action) => {
-        const disabled = Boolean(tradeDisabledReason) || !selectedOutcome || !Number.isFinite(action.price) || safeShares <= 0 || submittingSide !== null;
+        const sideExecutionPrice = action.side === "Buy" ? maxBuyExecutionPrice : minSellExecutionPrice;
+        const hasLiquidity = Number.isFinite(action.price) && Number.isFinite(sideExecutionPrice);
+        const disabled = Boolean(tradeDisabledReason) || !selectedOutcome || !hasLiquidity || safeShares <= 0 || submittingSide !== null;
         const label =
           Number.isFinite(action.price) && selectedOutcome
             ? `${action.side} ${selectedOutcome.name}  ${formatCents(action.price as number)}`
             : selectedOutcome
-              ? "Not enough liquidity"
+              ? "Not enough liquidity within slippage"
               : `${action.side} unavailable`;
+        const helper =
+          action.side === "Buy"
+            ? Number.isFinite(sideExecutionPrice)
+              ? `Max exec ${formatCents(sideExecutionPrice as number)}`
+              : "Not enough liquidity within slippage"
+            : Number.isFinite(sideExecutionPrice)
+              ? `Min exec ${formatCents(sideExecutionPrice as number)}`
+              : "Not enough liquidity within slippage";
         return (
           <Button
-            className={`h-12 flex-1 text-sm font-black shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
+            className={`h-16 flex-1 flex-col gap-0.5 text-sm font-black leading-none shadow-lg shadow-black/25 ${Number.isFinite(action.price) ? action.className : ""}`}
             disabled={disabled}
             key={action.side}
             onClick={() => void createOrder(action.side)}
@@ -467,11 +483,12 @@ export function MarketTradePanel({
             title={tradeDisabledReason ?? undefined}
           >
             {submittingSide === action.side ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            {label}
+            <span>{label}</span>
+            <span className="text-[10px] font-semibold uppercase tracking-[0.14em] opacity-80">{helper}</span>
           </Button>
         );
       }),
-    [buyPrice, createOrder, safeShares, selectedOutcome, sellPrice, submittingSide, tradeDisabledReason],
+    [buyPrice, createOrder, maxBuyExecutionPrice, minSellExecutionPrice, safeShares, selectedOutcome, sellPrice, submittingSide, tradeDisabledReason],
   );
 
   return (
@@ -538,8 +555,41 @@ export function MarketTradePanel({
                   <span className="min-w-0 truncate text-sm font-semibold">{outcome.name}</span>
                   <span className="shrink-0 text-lg font-black">{formatCents(outcome.price)}</span>
                 </button>
-              );
-            })}
+            );
+          })}
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-lg border border-zinc-800/90 bg-zinc-950/70 p-3 text-sm">
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Slippage tolerance</p>
+            <div className="flex rounded-md border border-zinc-800 bg-black p-0.5">
+              {SLIPPAGE_PRESETS.map((preset) => (
+                <button
+                  aria-pressed={slippageBps === preset}
+                  className={`h-7 rounded px-3 text-xs font-semibold transition ${
+                    slippageBps === preset ? "bg-zinc-100 text-black" : "text-zinc-400 hover:text-zinc-100"
+                  }`}
+                  key={preset}
+                  onClick={() => setSlippageBps(preset)}
+                  type="button"
+                >
+                  {preset === MAX_SLIPPAGE_BPS ? "13%" : `${preset / 100}%`}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-zinc-400">
+            <span>Default 3% marketable limit</span>
+            <span>Max 13%</span>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-xs text-zinc-400">
+            <span>Buy max exec</span>
+            <span className="font-semibold text-zinc-100">{Number.isFinite(maxBuyExecutionPrice) ? formatCents(maxBuyExecutionPrice as number) : "Not enough liquidity within slippage"}</span>
+          </div>
+          <div className="mt-1 flex items-center justify-between gap-3 text-xs text-zinc-400">
+            <span>Sell min exec</span>
+            <span className="font-semibold text-zinc-100">{Number.isFinite(minSellExecutionPrice) ? formatCents(minSellExecutionPrice as number) : "Not enough liquidity within slippage"}</span>
           </div>
         </div>
 
@@ -578,7 +628,7 @@ export function MarketTradePanel({
       <div className="border-t border-zinc-800/90 bg-[#07080b]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.32)]">
         <div className="flex gap-2">{actionButtons}</div>
         <p className="mt-2 text-[11px] leading-4 text-zinc-500">
-          Marketable order with up to 13% slippage protection.
+          Marketable order with the selected slippage tolerance.
         </p>
         {tradeProgress !== "idle" ? (
           <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200">

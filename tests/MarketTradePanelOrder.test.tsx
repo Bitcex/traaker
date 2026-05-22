@@ -124,6 +124,10 @@ describe("MarketTradePanel orders", () => {
     render(<MarketTradePanel market={market} onClose={vi.fn()} />);
 
     await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
+    expect(screen.getByRole("button", { name: /^3%$/i })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/default 3% marketable limit/i)).toBeInTheDocument();
+    expect(screen.getByText("61¢")).toBeInTheDocument();
+    expect(screen.getByText("57¢")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
     fireEvent.click(screen.getByRole("button", { name: /buy arsenal\s+43/i }));
 
@@ -150,7 +154,7 @@ describe("MarketTradePanel orders", () => {
         tokenID: "222221",
         amount: 4.3,
         currentPrice: 0.43,
-        maxSlippageBps: 1300,
+        maxSlippageBps: 300,
       }),
     );
   });
@@ -180,12 +184,20 @@ describe("MarketTradePanel orders", () => {
     const sellButton = screen.getByRole("button", { name: /sell psg\s+59/i });
     expect(buyButton).toBeEnabled();
     expect(sellButton).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: /^13%$/i }));
+    expect(screen.getByRole("button", { name: /^13%$/i })).toHaveAttribute("aria-pressed", "true");
 
     fireEvent.click(screen.getByRole("button", { name: /arsenal\s+43/i }));
     fireEvent.click(buyButton);
 
     await waitFor(() => expect(mocks.ensureTradingReady).toHaveBeenCalled());
     await waitFor(() => expect(mocks.placeMarketOrder).toHaveBeenCalled());
+    expect(mocks.createSignerClient).toHaveBeenCalled();
+    expect(mocks.placeMarketOrder.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        maxSlippageBps: 1300,
+      }),
+    );
   });
 
   it("auto-refreshes a stale quote before buying and submits with the refreshed price", async () => {
@@ -232,7 +244,7 @@ describe("MarketTradePanel orders", () => {
         tokenID: "111111",
         amount: 7.1,
         currentPrice: 0.71,
-        maxSlippageBps: 1300,
+        maxSlippageBps: 300,
       }),
     );
   });
@@ -283,7 +295,7 @@ describe("MarketTradePanel orders", () => {
       expect.objectContaining({
         tokenID: "111111",
         currentPrice: 0.68,
-        maxSlippageBps: 1300,
+        maxSlippageBps: 300,
         side: "BUY",
         userUSDCBalance: Number.MAX_SAFE_INTEGER,
       }),
