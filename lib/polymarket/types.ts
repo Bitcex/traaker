@@ -42,6 +42,7 @@ export type TerminalMarket = {
     bestAsk?: number;
     canonicalTeamName?: string;
     isTeamOutcome?: boolean;
+    entityType?: "club_team" | "national_team" | "fallback" | "non_team";
     outcomeLogoUrl?: string;
     teamDisplayName?: string;
     logoSource?: string;

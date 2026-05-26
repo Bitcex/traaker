@@ -69,6 +69,7 @@ type NormalizedMarketOutcome = {
   bestAsk?: number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
+  entityType?: "club_team" | "national_team" | "fallback" | "non_team";
 };
 
 type MarketDiscoveryCounts = {
@@ -525,28 +526,22 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
           if (outcome.outcomeLogoUrl) return outcome;
           if (outcome.logoSource && outcome.logoSource !== "fallback" && outcome.logoConfidence !== "fallback") return outcome;
           const canonicalTeam = extractedTeams.outcomeTeamMap[outcome.name];
-          if (!canonicalTeam) {
-            return {
-              ...outcome,
-              isTeamOutcome: false,
-              logoSource: "fallback",
-              logoConfidence: "fallback",
-            };
-          }
 
           const logo = await resolveSportsLogo({
             marketTitle: market.title,
-            outcomeName: canonicalTeam,
+            outcomeName: canonicalTeam ?? outcome.name,
             category: market.league,
             sport: market.sport,
           });
           const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match"].includes(logo.confidence);
+          const isTeamOutcome = logo.entityType === "club_team" || logo.entityType === "national_team";
           return {
             ...outcome,
-            canonicalTeamName: canonicalTeam,
-            isTeamOutcome: true,
-            ...(logo.logoUrl && confidentLogo ? { outcomeLogoUrl: logo.logoUrl } : {}),
-            teamDisplayName: logo.teamDisplayName || canonicalTeam,
+            ...(isTeamOutcome ? { canonicalTeamName: canonicalTeam ?? logo.normalizedInput } : {}),
+            isTeamOutcome,
+            entityType: logo.entityType,
+            ...(logo.logoUrl && confidentLogo && isTeamOutcome ? { outcomeLogoUrl: logo.logoUrl } : {}),
+            ...(isTeamOutcome ? { teamDisplayName: logo.teamDisplayName || canonicalTeam || logo.normalizedInput } : {}),
             logoSource: logo.logoSource,
             logoConfidence: logo.confidence,
           };

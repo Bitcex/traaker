@@ -31,33 +31,11 @@ export async function GET(request: Request) {
     const resolved = await Promise.all(
       teams.map(async (outcomeName) => {
         const canonicalTeam = extraction.outcomeTeamMap[outcomeName];
-        if (!canonicalTeam) {
-          return {
-            outcomeName,
-            canonicalTeam: null,
-            result: {
-              logoUrl: null,
-              teamName: outcomeName,
-              teamDisplayName: outcomeName,
-              source: "fallback",
-              logoSource: "fallback",
-              confidence: "fallback",
-            },
-            debug: {
-              sportsMonksQueries: [],
-              sportsMonksMatches: [],
-              theSportsDbQueries: [],
-              theSportsDbMatches: [],
-              finalResults: [],
-            },
-          };
-        }
-
         const { result, debug } = await resolveSportsLogoWithDebug({
           category,
           sport,
           marketTitle,
-          outcomeName: canonicalTeam,
+          outcomeName: canonicalTeam ?? outcomeName,
         });
         return { outcomeName, canonicalTeam, result, debug };
       }),
@@ -70,6 +48,8 @@ export async function GET(request: Request) {
         marketTitle,
         extractedTeams: extraction.canonicalTeams,
         mappedOutcomes: extraction.outcomeTeamMap,
+        normalizedInput: resolved.flatMap((item) => item.debug.normalizedInput),
+        candidateQueries: [...new Set(resolved.flatMap((item) => item.debug.candidateQueries))],
         sportsMonksQueries: resolved.flatMap((item) => item.debug.sportsMonksQueries),
         sportsMonksMatches: resolved.flatMap((item) => item.debug.sportsMonksMatches),
         theSportsDbQueries: resolved.flatMap((item) => item.debug.theSportsDbQueries),

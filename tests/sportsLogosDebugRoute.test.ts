@@ -42,8 +42,30 @@ describe("/api/sports/logos/debug", () => {
       canonicalTeam: "Arsenal",
       logoUrl: "https://r2.thesportsdb.com/images/media/team/badge/arsenal.png",
       source: "thesportsdb",
+      entityType: "club_team",
+      normalizedInput: "Arsenal",
+      providerUsed: "thesportsdb",
     });
+    expect(body.candidateQueries).toContain("Arsenal");
     expect(JSON.stringify(body)).not.toContain("sportsmonks-secret");
     expect(JSON.stringify(body)).not.toContain("sportsdb-secret");
+  });
+
+  it("classifies World Cup winner outcomes as national teams", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { GET } = await import("@/app/api/sports/logos/debug/route");
+    const response = await GET(
+      new Request("http://localhost/api/sports/logos/debug?category=Soccer&market=2026%20FIFA%20World%20Cup%20Winner&teams=France,USA,England"),
+    );
+    const body = await response.json();
+
+    expect(body.finalResults).toMatchObject([
+      { outcomeName: "France", logoUrl: "https://flagcdn.com/fr.svg", entityType: "national_team", providerUsed: "local" },
+      { outcomeName: "USA", teamName: "United States", logoUrl: "https://flagcdn.com/us.svg", entityType: "national_team", providerUsed: "local" },
+      { outcomeName: "England", logoUrl: "https://flagcdn.com/gb-eng.svg", entityType: "national_team", providerUsed: "local" },
+    ]);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

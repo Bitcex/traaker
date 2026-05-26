@@ -59,6 +59,7 @@ export type MarketOutcomeOption = {
   bestAsk?: number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
+  entityType?: "club_team" | "national_team" | "fallback" | "non_team";
   outcomeLogoUrl?: string;
   teamDisplayName?: string;
   logoSource?: string;
@@ -366,6 +367,7 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
         bestAsk: Number.isFinite(outcome.bestAsk) ? outcome.bestAsk : undefined,
         ...(outcome.canonicalTeamName ? { canonicalTeamName: outcome.canonicalTeamName } : {}),
         ...(typeof outcome.isTeamOutcome === "boolean" ? { isTeamOutcome: outcome.isTeamOutcome } : {}),
+        ...(outcome.entityType ? { entityType: outcome.entityType } : {}),
         ...(outcome.outcomeLogoUrl ? { outcomeLogoUrl: outcome.outcomeLogoUrl } : {}),
         ...(outcome.teamDisplayName ? { teamDisplayName: outcome.teamDisplayName } : {}),
         ...(outcome.logoSource ? { logoSource: outcome.logoSource } : {}),

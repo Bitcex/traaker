@@ -33,7 +33,7 @@ describe("/api/sports/logos", () => {
     const response = await GET(new Request("http://localhost/api/sports/logos?category=NBA&teams=Knicks,Cavaliers"));
     const body = await response.json();
 
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       category: "NBA",
       teams: [
         {
@@ -78,7 +78,7 @@ describe("/api/sports/logos", () => {
     const response = await GET(new Request("http://localhost/api/sports/logos?category=Soccer&teams=Crystal%20Palace%20FC"));
     const body = await response.json();
 
-    expect(body).toEqual({
+    expect(body).toMatchObject({
       category: "Soccer",
       teams: [
         {
