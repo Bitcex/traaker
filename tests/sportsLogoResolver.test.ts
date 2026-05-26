@@ -96,6 +96,54 @@ describe("sports logo resolver", () => {
     expect(fetchMock).not.toHaveBeenCalledWith(expect.stringContaining("thesportsdb.com"), { cache: "no-store" });
   });
 
+  it("resolves PSG from SportsMonks image_path using explicit aliases", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: [{ id: 591, name: "PSG", short_code: "PSG", image_path: "https://cdn.sportmonks.com/images/soccer/teams/15/591.png" }],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Paris Saint-Germain FC vs. Arsenal FC", outcomeName: "Paris Saint-Germain" })).resolves.toEqual({
+      logoUrl: "https://cdn.sportmonks.com/images/soccer/teams/15/591.png",
+      teamName: "PSG",
+      teamDisplayName: "PSG",
+      source: "sportsmonks",
+      logoSource: "sportsmonks",
+      confidence: "alias_match",
+    });
+  });
+
+  it("maps ARS and Arsenal FC to Arsenal before provider lookup", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: [{ id: 19, name: "Arsenal", short_code: "ARS", image_path: "https://cdn.sportmonks.com/images/soccer/teams/19/19.png" }],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Paris Saint-Germain FC vs. Arsenal FC", outcomeName: "ARS" })).resolves.toMatchObject({
+      logoUrl: "https://cdn.sportmonks.com/images/soccer/teams/19/19.png",
+      teamName: "Arsenal",
+      confidence: "alias_match",
+    });
+
+    resetSportsLogoCache();
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Paris Saint-Germain FC vs. Arsenal FC", outcomeName: "Arsenal FC" })).resolves.toMatchObject({
+      logoUrl: "https://cdn.sportmonks.com/images/soccer/teams/19/19.png",
+      teamName: "Arsenal",
+      confidence: "exact_normalized_match",
+    });
+  });
+
   it("sends SportsMonks a clean team query instead of the full market title", async () => {
     vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -172,6 +220,33 @@ describe("sports logo resolver", () => {
     });
   });
 
+  it("uses TheSportsDB strTeamBadge as a fallback logo", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    vi.stubEnv("THESPORTSDB_API_KEY", "sportsdb-key");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("api.sportmonks.com")) return new Response(JSON.stringify({ data: [] }), { status: 200 });
+        return new Response(
+          JSON.stringify({
+            teams: [{ strTeam: "Paris Saint-Germain", strTeamBadge: "https://r2.thesportsdb.com/images/media/team/badge/psg.png" }],
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(resolveSportsLogo({ category: "Soccer", sport: "Soccer", marketTitle: "Paris Saint-Germain FC vs. Arsenal FC", outcomeName: "PSG" })).resolves.toEqual({
+      logoUrl: "https://r2.thesportsdb.com/images/media/team/badge/psg.png",
+      teamName: "Paris Saint-Germain",
+      teamDisplayName: "Paris Saint-Germain",
+      source: "thesportsdb",
+      logoSource: "thesportsdb",
+      confidence: "alias_match",
+    });
+  });
+
   it("sends TheSportsDB a clean team query instead of the full market title", async () => {
     vi.stubEnv("THESPORTSDB_API_KEY", "sportsdb-key");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -198,6 +273,8 @@ describe("sports logo resolver", () => {
   });
 
   it("does not query providers for totals or Yes/No outcomes", async () => {
+    vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
+    vi.stubEnv("THESPORTSDB_API_KEY", "sportsdb-key");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 

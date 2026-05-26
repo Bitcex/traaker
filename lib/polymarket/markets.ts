@@ -511,10 +511,19 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
         sport: market.sport,
         outcomes: market.outcomeOptions.map((outcome) => outcome.name),
       });
+      if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
+        console.info("[Traak] sports logo debug", {
+          message: "extracted_market_teams",
+          marketTitle: market.title,
+          extractedTeams: extractedTeams.canonicalTeams,
+          outcomeTeamMap: extractedTeams.outcomeTeamMap,
+        });
+      }
 
       const outcomeOptions = await Promise.all(
         market.outcomeOptions.map(async (outcome) => {
-          if (outcome.outcomeLogoUrl || outcome.logoSource) return outcome;
+          if (outcome.outcomeLogoUrl) return outcome;
+          if (outcome.logoSource && outcome.logoSource !== "fallback" && outcome.logoConfidence !== "fallback") return outcome;
           const canonicalTeam = extractedTeams.outcomeTeamMap[outcome.name];
           if (!canonicalTeam) {
             return {

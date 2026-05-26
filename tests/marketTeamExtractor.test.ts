@@ -85,4 +85,18 @@ describe("market team extractor", () => {
       Thunder: "Oklahoma City Thunder",
     });
   });
+
+  it("maps PSG and ARS abbreviations through canonical market teams", () => {
+    const result = extractMarketTeams({
+      marketTitle: "Paris Saint-Germain FC vs. Arsenal FC",
+      category: "Soccer",
+      outcomes: ["PSG", "ARS"],
+    });
+
+    expect(result.canonicalTeams).toEqual(["Paris Saint-Germain", "Arsenal"]);
+    expect(result.outcomeTeamMap).toEqual({
+      PSG: "Paris Saint-Germain",
+      ARS: "Arsenal",
+    });
+  });
 });

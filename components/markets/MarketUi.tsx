@@ -92,6 +92,7 @@ export function OutcomeCard({
   onClick: () => void;
 }) {
   const testId = `outcome-logo-${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "option"}`;
+  const logoIsExternal = logoUrl ? /^https?:\/\//i.test(logoUrl) : false;
 
   return (
     <button
@@ -104,7 +105,10 @@ export function OutcomeCard({
       type="button"
     >
       <span className="grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full border border-slate-700/70 bg-slate-950/80 shadow-inner shadow-black/30">
-        {logoUrl ? (
+        {logoUrl && logoIsExternal ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img data-testid={testId} data-logo-url={logoUrl} src={logoUrl} alt="" width={32} height={32} className="h-8 w-8 object-contain" loading="lazy" decoding="async" />
+        ) : logoUrl ? (
           <Image data-testid={testId} data-logo-url={logoUrl} src={logoUrl} alt="" width={32} height={32} className="h-8 w-8 object-contain" />
         ) : fallbackIconSrc ? (
           <Image data-testid={testId} data-logo-url={fallbackIconSrc} src={fallbackIconSrc} alt="" width={28} height={28} className="h-7 w-7 object-contain opacity-85" />
