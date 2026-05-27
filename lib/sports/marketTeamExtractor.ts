@@ -28,6 +28,17 @@ const NBA_ALIASES: Record<string, string> = {
   spurs: "San Antonio Spurs",
 };
 
+const MLB_ALIASES: Record<string, string> = {
+  angels: "Los Angeles Angels",
+  "los angeles angels": "Los Angeles Angels",
+  "los angeles angels fc": "Los Angeles Angels",
+  laa: "Los Angeles Angels",
+  det: "Detroit Tigers",
+  tigers: "Detroit Tigers",
+  "detroit tigers": "Detroit Tigers",
+  "detroit tigers fc": "Detroit Tigers",
+};
+
 const OUTCOME_LINE_SUFFIX_PATTERN = /(?:\s+\d+){1,4}$/;
 const OUTCOME_LINE_WORD_PATTERN = /\b(?:o\s*\/\s*u|ou|over|under|btts|both teams to score|spread|handicap|total|totals?|moneyline|line)\b.*$/i;
 
@@ -88,6 +99,9 @@ export function cleanOutcomeTeamCandidate(value: string) {
 function contextualAliases(category?: string, sport?: string) {
   const normalizedCategory = normalizeCategory(category, sport);
   if (normalizedCategory === "NBA") return { ...TEAM_ALIASES, ...NBA_ALIASES };
+  if (normalizedCategory === "MLB" || compactTeamText(`${category ?? ""} ${sport ?? ""}`).includes("baseball")) {
+    return { ...TEAM_ALIASES, ...MLB_ALIASES };
+  }
   return TEAM_ALIASES;
 }
 

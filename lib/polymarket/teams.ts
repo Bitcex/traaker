@@ -23,6 +23,37 @@ export type PolymarketTeamMatch = {
   normalizedQuery: string;
 };
 
+export type PolymarketTeamLookupAttempt = {
+  source: "teams" | "team_page";
+  query: string;
+  normalizedQuery: string;
+  candidates: string[];
+  matchedTeam: string | null;
+  logoUrl: string | null;
+  rejectedReason?: string;
+  teamPageUrl?: string;
+};
+
+export type PolymarketTeamLookupDebug = {
+  attempts: PolymarketTeamLookupAttempt[];
+  chosenCandidate: PolymarketTeamLookupAttempt | null;
+};
+
+export type PolymarketTeamLookupContext = {
+  category?: string;
+  sport?: string;
+  marketTitle?: string;
+};
+
+export type PolymarketTeamLogoResolution = {
+  match: PolymarketTeamMatch | null;
+  logoUrl: string | null;
+  source: "teams" | "team_page" | null;
+  debug: PolymarketTeamLookupDebug;
+  acceptedReason?: string;
+  rejectionReason?: string;
+};
+
 type IndexedTeamEntry = {
   record: PolymarketTeamRecord;
   matchedBy: PolymarketTeamMatch["matchedBy"];
@@ -42,18 +73,29 @@ type CacheEntry<T> = {
 
 declare global {
   var __TRAAK_POLYMARKET_TEAMS_CACHE__: CacheEntry<PolymarketTeamsIndex> | undefined;
+  var __TRAAK_POLYMARKET_TEAM_PAGE_CACHE__: Map<string, CacheEntry<PolymarketTeamLogoResolution | null>> | undefined;
 }
 
 const GAMMA_TEAMS_URL = "https://gamma-api.polymarket.com/teams";
+const POLYMARKET_TEAMS_BASE_URL = "https://polymarket.com/teams";
 const TEAMS_PAGE_LIMIT = 100;
 const TEAMS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const TEAMS_FALLBACK_TTL_MS = 10 * 60 * 1000;
+const TEAM_PAGE_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const TEAM_PAGE_FALLBACK_TTL_MS = 10 * 60 * 1000;
 
 function getTeamsCache() {
   if (!globalThis.__TRAAK_POLYMARKET_TEAMS_CACHE__) {
     globalThis.__TRAAK_POLYMARKET_TEAMS_CACHE__ = { expiresAt: 0 };
   }
   return globalThis.__TRAAK_POLYMARKET_TEAMS_CACHE__;
+}
+
+function getTeamPageCache() {
+  if (!globalThis.__TRAAK_POLYMARKET_TEAM_PAGE_CACHE__) {
+    globalThis.__TRAAK_POLYMARKET_TEAM_PAGE_CACHE__ = new Map();
+  }
+  return globalThis.__TRAAK_POLYMARKET_TEAM_PAGE_CACHE__;
 }
 
 function cleanTeamText(value: string) {
@@ -82,6 +124,181 @@ function normalizePolymarketTeamRecord(team: PolymarketTeamRecord): PolymarketTe
 function publicUrl(url: URL) {
   const next = new URL(url.toString());
   return next.toString();
+}
+
+function getContextText(context?: PolymarketTeamLookupContext) {
+  return cleanTeamText(`${context?.category ?? ""} ${context?.sport ?? ""} ${context?.marketTitle ?? ""}`);
+}
+
+function inferPolymarketTeamPageGame(context?: PolymarketTeamLookupContext) {
+  const normalized = getContextText(context);
+  if (/\bmlb|baseball\b/.test(normalized)) return "mlb";
+  return null;
+}
+
+function slugifyTeamName(value: string) {
+  return cleanTeamText(value).replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+}
+
+function normalizeJsonLdText(value: unknown) {
+  return cleanTeamText(String(value ?? ""));
+}
+
+function parsePolymarketTeamPageLogo(html: string, teamName: string) {
+  const scripts = [...html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/gi)];
+  const normalizedQuery = cleanTeamText(teamName);
+  const strippedQuery = cleanTeamText(stripTeamSuffix(teamName));
+
+  for (const script of scripts) {
+    const raw = script[1]?.trim();
+    if (!raw) continue;
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      const records = Array.isArray(parsed) ? parsed : [parsed];
+      for (const record of records) {
+        if (!record || typeof record !== "object") continue;
+        const data = record as Record<string, unknown>;
+        if (data["@type"] !== "SportsTeam") continue;
+        const name = normalizeJsonLdText(data.name);
+        const alt = normalizeJsonLdText(data.alternateName);
+        const logo = typeof data.logo === "string" ? normalizePolymarketLogoUrl(data.logo) : null;
+        if (!logo) continue;
+        if (name === normalizedQuery || name === strippedQuery || alt === normalizedQuery || alt === strippedQuery) {
+          return {
+            name: typeof data.name === "string" ? data.name.trim() : teamName,
+            displayName: typeof data.name === "string" ? data.name.trim() : teamName,
+            abbreviation: typeof data.alternateName === "string" ? data.alternateName.trim() : null,
+            logo,
+          };
+        }
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+async function fetchPolymarketTeamPageResolution(query: string, context?: PolymarketTeamLookupContext): Promise<PolymarketTeamLogoResolution | null> {
+  const game = inferPolymarketTeamPageGame(context);
+  if (!game) return null;
+
+  const cache = getTeamPageCache();
+  const cacheKey = `${game}:${cleanTeamText(query)}`;
+  const cached = cache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    if (cached.value) return cached.value;
+    if (cached.promise) return cached.promise;
+  }
+
+  const slugCandidates = [...new Set([query, cleanPolymarketTeamQuery(query), stripTeamSuffix(query)]).values()]
+    .map((value) => cleanTeamText(value))
+    .filter(Boolean)
+    .map(slugifyTeamName)
+    .filter(Boolean);
+  const pageCandidates = slugCandidates.length ? slugCandidates : [slugifyTeamName(query)];
+  const attempts: PolymarketTeamLookupAttempt[] = [];
+
+  const promise = (async () => {
+    for (const slug of pageCandidates) {
+      const teamPageUrl = `${POLYMARKET_TEAMS_BASE_URL}/${game}/${slug}`;
+      const response = await fetch(teamPageUrl, { cache: "no-store" });
+      if (!response.ok) {
+        attempts.push({
+          source: "team_page",
+          query,
+          normalizedQuery: cleanTeamText(query),
+          candidates: [slug],
+          matchedTeam: null,
+          logoUrl: null,
+          rejectedReason: `team page returned status ${response.status}`,
+          teamPageUrl,
+        });
+        continue;
+      }
+
+      const html = await response.text();
+      const parsed = parsePolymarketTeamPageLogo(html, query) ?? parsePolymarketTeamPageLogo(html, cleanPolymarketTeamQuery(query));
+      if (!parsed) {
+        attempts.push({
+          source: "team_page",
+          query,
+          normalizedQuery: cleanTeamText(query),
+          candidates: [slug],
+          matchedTeam: null,
+          logoUrl: null,
+          rejectedReason: "team page logo did not match requested team",
+          teamPageUrl,
+        });
+        continue;
+      }
+
+      const result: PolymarketTeamLogoResolution = {
+        match: {
+          record: {
+            name: parsed.name,
+            displayName: parsed.displayName,
+            abbreviation: parsed.abbreviation,
+            logo: parsed.logo,
+            league: game.toUpperCase(),
+          },
+          matchedBy: "name",
+          query,
+          normalizedQuery: cleanTeamText(query),
+        },
+        logoUrl: parsed.logo,
+        source: "team_page",
+        acceptedReason: "polymarket-team-page",
+        debug: {
+          attempts: [
+            ...attempts,
+            {
+              source: "team_page",
+              query,
+              normalizedQuery: cleanTeamText(query),
+              candidates: [slug],
+              matchedTeam: parsed.name,
+              logoUrl: parsed.logo,
+              teamPageUrl,
+            },
+          ],
+          chosenCandidate: {
+            source: "team_page",
+            query,
+            normalizedQuery: cleanTeamText(query),
+            candidates: [slug],
+            matchedTeam: parsed.name,
+            logoUrl: parsed.logo,
+            teamPageUrl,
+          },
+        },
+      };
+      return result;
+    }
+
+    const result: PolymarketTeamLogoResolution = {
+      match: null,
+      logoUrl: null,
+      source: null,
+      rejectionReason: "no exact /teams index match or team page logo match",
+      debug: {
+        attempts,
+        chosenCandidate: null,
+      },
+    };
+    return result;
+  })();
+
+  cache.set(cacheKey, { expiresAt: Date.now() + TEAM_PAGE_CACHE_TTL_MS, promise });
+  try {
+    const value = await promise;
+    cache.set(cacheKey, { expiresAt: Date.now() + (value?.logoUrl ? TEAM_PAGE_CACHE_TTL_MS : TEAM_PAGE_FALLBACK_TTL_MS), value: value ?? undefined });
+    return value;
+  } catch {
+    cache.set(cacheKey, { expiresAt: Date.now() + TEAM_PAGE_FALLBACK_TTL_MS });
+    return null;
+  }
 }
 
 function teamDisplayName(team: PolymarketTeamRecord) {
@@ -286,15 +503,90 @@ export async function matchPolymarketTeams(queries: string[]) {
   return { index, results };
 }
 
-export async function resolvePolymarketTeamLogo(query: string) {
-  const match = await matchPolymarketTeam(query);
-  const logoUrl = normalizePolymarketLogoUrl(match?.record.logo ?? null);
+export async function resolvePolymarketTeamLogo(query: string, context?: PolymarketTeamLookupContext): Promise<PolymarketTeamLogoResolution> {
+  const normalizedQuery = cleanPolymarketTeamQuery(query);
+  const teamsIndex = await fetchAllPolymarketTeams();
+  const attempts: PolymarketTeamLookupAttempt[] = [];
+  attempts.push({
+    source: "teams",
+    query,
+    normalizedQuery,
+    candidates: teamsIndex.records
+      .filter((team) => {
+        const name = cleanTeamText(team.name ?? "");
+        const display = cleanTeamText(teamDisplayName(team));
+        const alias = cleanTeamText(team.alias ?? "");
+        const abbreviation = cleanTeamText(team.abbreviation ?? "");
+        return [name, display, alias, abbreviation].some(Boolean);
+      })
+      .slice(0, 8)
+      .map((team) => team.name ?? team.displayName ?? team.abbreviation ?? ""),
+    matchedTeam: null,
+    logoUrl: null,
+    rejectedReason: "no exact /teams index match",
+  });
+  const teamPageResolution = await fetchPolymarketTeamPageResolution(query, context);
+  if (teamPageResolution?.logoUrl && teamPageResolution.match) {
+    return {
+      ...teamPageResolution,
+      debug: {
+        attempts: [...attempts, ...teamPageResolution.debug.attempts],
+        chosenCandidate: teamPageResolution.debug.chosenCandidate,
+      },
+    };
+  }
+
+  const directMatch = await matchPolymarketTeam(query);
+  if (directMatch?.record.logo) {
+    const logoUrl = normalizePolymarketLogoUrl(directMatch.record.logo ?? null);
+    const result: PolymarketTeamLogoResolution = {
+      match: directMatch,
+      logoUrl,
+      source: "teams",
+      acceptedReason: "polymarket-team",
+      debug: {
+        attempts: [
+          {
+            source: "teams",
+            query,
+            normalizedQuery,
+            candidates: [directMatch.record.name ?? directMatch.record.displayName ?? query],
+            matchedTeam: directMatch.record.name ?? directMatch.record.displayName ?? null,
+            logoUrl,
+            rejectedReason: logoUrl ? undefined : "matched team record has no logo",
+          },
+        ],
+        chosenCandidate: {
+          source: "teams",
+          query,
+          normalizedQuery,
+          candidates: [directMatch.record.name ?? directMatch.record.displayName ?? query],
+          matchedTeam: directMatch.record.name ?? directMatch.record.displayName ?? null,
+          logoUrl,
+        },
+      },
+    };
+    return {
+      ...result,
+      debug: {
+        attempts: [...attempts, ...result.debug.attempts],
+        chosenCandidate: result.debug.chosenCandidate,
+      },
+    };
+  }
   return {
-    match,
-    logoUrl,
+    match: null,
+    logoUrl: null,
+    source: null,
+    rejectionReason: "no exact /teams index match or team page logo match",
+    debug: {
+      attempts: [...attempts, ...(teamPageResolution?.debug.attempts ?? [])],
+      chosenCandidate: null,
+    },
   };
 }
 
 export function resetPolymarketTeamsCache() {
   globalThis.__TRAAK_POLYMARKET_TEAMS_CACHE__ = { expiresAt: 0 };
+  globalThis.__TRAAK_POLYMARKET_TEAM_PAGE_CACHE__ = new Map();
 }

@@ -622,11 +622,17 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
 
           let matchedPolymarketTeamLogoUrl: string | null = null;
           let matchedPolymarketTeam: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["match"] | null = null;
+          let matchedPolymarketDebug: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["debug"] | null = null;
           for (const candidate of teamCandidates) {
-            const match = await resolvePolymarketTeamLogo(candidate);
+            const match = await resolvePolymarketTeamLogo(candidate, {
+              category: market.league,
+              sport: market.sport,
+              marketTitle: market.title,
+            });
             if (match.match && match.logoUrl) {
               matchedPolymarketTeam = match.match;
               matchedPolymarketTeamLogoUrl = match.logoUrl;
+              matchedPolymarketDebug = match.debug;
               break;
             }
           }
@@ -646,6 +652,7 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
               rawOutcomeLabel: outcome.name,
               cleanedTeamCandidate: canonicalTeam ?? outcome.name,
               matchedPolymarketTeam,
+              polymarketDebug: matchedPolymarketDebug,
               providerAttempted: logo.providerUsed,
               resolvedLogoUrl: logo.logoUrl,
               genericLogoChosen: !logo.logoUrl || logo.entityType === "fallback" || logo.entityType === "non_team",

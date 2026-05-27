@@ -54,11 +54,13 @@ export async function GET(request: Request) {
 
         let matchedPolymarketTeam: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["match"] | null = null;
         let matchedPolymarketTeamLogoUrl: string | null = null;
+        let polymarketDebug: Awaited<ReturnType<typeof resolvePolymarketTeamLogo>>["debug"] | null = null;
         for (const candidate of teamCandidates) {
-          const match = await resolvePolymarketTeamLogo(candidate);
+          const match = await resolvePolymarketTeamLogo(candidate, { category, sport, marketTitle });
           if (match.match && match.logoUrl) {
             matchedPolymarketTeam = match.match;
             matchedPolymarketTeamLogoUrl = match.logoUrl;
+            polymarketDebug = match.debug;
             break;
           }
         }
@@ -70,7 +72,7 @@ export async function GET(request: Request) {
           outcomeName,
           polymarketLogoUrl: matchedPolymarketTeamLogoUrl ?? undefined,
         });
-        return { outcomeName, canonicalTeam, matchedPolymarketTeam, matchedPolymarketTeamLogoUrl, result, debug };
+        return { outcomeName, canonicalTeam, matchedPolymarketTeam, matchedPolymarketTeamLogoUrl, polymarketDebug, result, debug };
       }),
     );
 
@@ -104,6 +106,8 @@ export async function GET(request: Request) {
             : null,
           canonicalTeam: item.canonicalTeam,
           cleanedTeamCandidate: cleanOutcomeTeamCandidate(item.outcomeName) || null,
+          polymarketAttempts: item.polymarketDebug?.attempts ?? [],
+          chosenPolymarketCandidate: item.polymarketDebug?.chosenCandidate ?? null,
           genericLogoChosen: item.result.entityType === "fallback" || item.result.entityType === "non_team" || !item.result.logoUrl,
           finalLogoUrl: normalizePolymarketLogoUrl(item.result.logoUrl) ?? item.result.logoUrl,
           providerReason: item.result.acceptedReason ?? item.result.rejectionReason ?? null,

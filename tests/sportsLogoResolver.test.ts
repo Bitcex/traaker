@@ -524,11 +524,31 @@ describe("sports logo resolver", () => {
       vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.includes("gamma-api.polymarket.com/teams")) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        if (url.includes("polymarket.com/teams/mlb/los-angeles-angels")) {
           return new Response(
-            JSON.stringify([
-              { id: 7001, name: "Los Angeles Angels", alias: "Angels", abbreviation: "LAA", logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/angels.png" },
-              { id: 7002, name: "Detroit Tigers", alias: "Tigers", abbreviation: "DET", logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/tigers.png" },
-            ]),
+            `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "SportsTeam",
+              name: "Los Angeles Angels",
+              alternateName: "LAA",
+              sport: "MLB",
+              logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
+            })}</script></head><body></body></html>`,
+            { status: 200 },
+          );
+        }
+        if (url.includes("polymarket.com/teams/mlb/detroit-tigers")) {
+          return new Response(
+            `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "SportsTeam",
+              name: "Detroit Tigers",
+              alternateName: "DET",
+              sport: "MLB",
+              logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Detroit Tigers-98db052d82.png",
+            })}</script></head><body></body></html>`,
             { status: 200 },
           );
         }
@@ -558,11 +578,11 @@ describe("sports logo resolver", () => {
         spread: 0.02,
         recentTradesCount: 0,
         opportunityScore: 1,
-        outcomes: { yes: "Los Angeles Angels", no: "Detroit Tigers" },
+        outcomes: { yes: "LAA", no: "DET" },
         tokenIds: { yes: "angels", no: "tigers" },
         outcomeOptions: [
-          { name: "Los Angeles Angels", price: 0.52, tokenId: "angels" },
-          { name: "Detroit Tigers", price: 0.48, tokenId: "tigers" },
+          { name: "LAA", price: 0.52, tokenId: "angels" },
+          { name: "DET", price: 0.48, tokenId: "tigers" },
         ],
         source: "polymarket",
       } satisfies TerminalMarket,
@@ -570,20 +590,18 @@ describe("sports logo resolver", () => {
 
     expect(market.outcomeOptions).toMatchObject([
       {
-        name: "Los Angeles Angels",
-        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/angels.png",
-        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/angels.png",
+        name: "LAA",
+        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Los Angeles Angels-66dbbd1c0d.png",
         logoSource: "polymarket",
-        polymarketTeamId: 7001,
         polymarketTeamAbbreviation: "LAA",
         polymarketTeamName: "Los Angeles Angels",
       },
       {
-        name: "Detroit Tigers",
-        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/tigers.png",
-        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/tigers.png",
+        name: "DET",
+        polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Detroit Tigers-98db052d82.png",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/Detroit Tigers-98db052d82.png",
         logoSource: "polymarket",
-        polymarketTeamId: 7002,
         polymarketTeamAbbreviation: "DET",
         polymarketTeamName: "Detroit Tigers",
       },
