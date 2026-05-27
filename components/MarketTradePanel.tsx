@@ -82,9 +82,10 @@ function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string 
   return market.outcomes.find((outcome) => outcome.name === preferred) ?? market.outcomes.find((outcome) => outcome.name === market.favoredOutcome) ?? market.outcomes[0];
 }
 
-function confidentOutcomeLogo(outcome: { outcomeLogoUrl?: string; logoConfidence?: string; isTeamOutcome?: boolean }) {
+function confidentOutcomeLogo(outcome: { outcomeLogoUrl?: string; logoConfidence?: string; isTeamOutcome?: boolean; isLogoOutcome?: boolean; entityType?: string }) {
   if (!outcome.outcomeLogoUrl) return undefined;
-  if (outcome.isTeamOutcome === false) return undefined;
+  if (outcome.isLogoOutcome === false) return undefined;
+  if (outcome.entityType === "fallback" || outcome.entityType === "non_team") return undefined;
   const hostIndex = outcome.outcomeLogoUrl.lastIndexOf(POLYMARKET_UPLOAD_HOST);
   const displayLogoUrl =
     hostIndex > 0 ? `${POLYMARKET_UPLOAD_HOST}${outcome.outcomeLogoUrl.slice(hostIndex + POLYMARKET_UPLOAD_HOST.length)}` : outcome.outcomeLogoUrl;

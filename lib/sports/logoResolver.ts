@@ -12,6 +12,7 @@ export type SportsLogoConfidence =
   | "provider_shortcode"
   | "fallback";
 export type SportsLogoEntityType = "club_team" | "national_team" | "fallback" | "non_team";
+export type SportsParticipantType = "team" | "player" | "driver" | "fighter" | "constructor" | "country" | "generic";
 
 export type SportsLogoInput = {
   marketTitle?: string;
@@ -19,7 +20,9 @@ export type SportsLogoInput = {
   sport?: string;
   category?: string;
   polymarketLogoUrl?: string;
+  polymarketParticipantLogoUrl?: string;
   sportsMonksTeamId?: string | number;
+  participantType?: SportsParticipantType;
 };
 
 export type SportsLogoResolution = {
@@ -32,6 +35,9 @@ export type SportsLogoResolution = {
   entityType: SportsLogoEntityType;
   normalizedInput: string;
   providerUsed: SportsLogoProvider;
+  participantType?: SportsParticipantType;
+  cacheHit?: boolean;
+  lookupMs?: number;
   acceptedReason?: string;
   rejectionReason?: string;
 };
@@ -140,9 +146,13 @@ export function normalizeSportsLogoCategory(category?: string, sport?: string) {
   const value = compactText(`${category ?? ""} ${sport ?? ""}`);
   if (/\bnba|basketball|wnba\b/.test(value)) return "NBA";
   if (/\bnfl|american football|super bowl\b/.test(value)) return "NFL";
+  if (/\bnhl|hockey\b/.test(value)) return "NHL";
+  if (/\bmlb|baseball\b/.test(value)) return "MLB";
   if (/\bsoccer|premier league|champions league|ucl|epl|uefa|fifa|mls|laliga|serie a|bundesliga\b/.test(value)) return "Soccer";
   if (/\bufc|mma|fight|fighter|boxing\b/.test(value)) return "UFC";
   if (/\btennis|atp|wta|wimbledon|french open|us open|australian open\b/.test(value)) return "Tennis";
+  if (/\bf1|formula 1|formula one|motorsport|racing\b/.test(value)) return "F1";
+  if (/\bcricket|ipl\b/.test(value)) return "Cricket";
   return category || sport || "Market";
 }
 
@@ -192,7 +202,10 @@ function sportsLogoResolution(input: {
   source: SportsLogoProvider;
   confidence: SportsLogoConfidence;
   entityType?: SportsLogoEntityType;
+  participantType?: SportsParticipantType;
   normalizedInput?: string;
+  cacheHit?: boolean;
+  lookupMs?: number;
   acceptedReason?: string;
   rejectionReason?: string;
 }): SportsLogoResolution {
@@ -206,6 +219,9 @@ function sportsLogoResolution(input: {
     entityType: input.entityType ?? (input.source === "fallback" ? "fallback" : "club_team"),
     normalizedInput: input.normalizedInput ?? input.teamName,
     providerUsed: input.source,
+    ...(input.participantType ? { participantType: input.participantType } : {}),
+    ...(typeof input.cacheHit === "boolean" ? { cacheHit: input.cacheHit } : {}),
+    ...(typeof input.lookupMs === "number" ? { lookupMs: input.lookupMs } : {}),
     ...(input.logoUrl && input.acceptedReason ? { acceptedReason: input.acceptedReason } : {}),
     ...(!input.logoUrl && input.rejectionReason ? { rejectionReason: input.rejectionReason } : {}),
   };
@@ -370,6 +386,9 @@ function leagueNamesForContext(category: string, rawContext: string) {
   const context = compactText(rawContext);
   if (category === "NBA") return ["NBA"];
   if (category === "NFL") return ["NFL"];
+  if (category === "NHL") return ["NHL"];
+  if (category === "MLB") return ["MLB", "Major League Baseball"];
+  if (category === "Cricket") return ["IPL", "Indian Premier League", "Cricket"];
   if (category !== "Soccer") return [];
 
   const leagues: string[] = [];
@@ -487,6 +506,7 @@ async function fetchSportsMonksTeamLogo(
           source: "sportsmonks",
           confidence,
           entityType: "club_team",
+          participantType: "team",
           normalizedInput: teamName,
           acceptedReason: confidenceAcceptedReason(confidence),
         });
@@ -540,6 +560,7 @@ async function fetchSportsMonksTeamLogo(
         source: "sportsmonks",
         confidence: match.confidence,
         entityType: "club_team",
+        participantType: "team",
         normalizedInput: teamName,
         acceptedReason: confidenceAcceptedReason(match.confidence),
       });
@@ -615,6 +636,7 @@ async function fetchTheSportsDbLeagueTeamLogo(
         source: "thesportsdb",
         confidence: match.confidence,
         entityType: "club_team",
+        participantType: "team",
         normalizedInput: teamName,
         acceptedReason: confidenceAcceptedReason(match.confidence),
       })
@@ -690,8 +712,10 @@ async function fetchTheSportsDbTeamLogo(
 }
 
 async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsLogoDebugTrace, bypassCache = false): Promise<SportsLogoResolution> {
+  const startedAt = Date.now();
   const category = normalizeSportsLogoCategory(input.category, input.sport);
   const entity = classifyLogoEntity(input, category);
+  const participantType = input.participantType ?? null;
   if (entity.entityType === "national_team" && entity.country) {
     const result = sportsLogoResolution({
       logoUrl: countryFlagUrl(entity.country),
@@ -699,14 +723,55 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
       source: "local",
       confidence: "alias_match",
       entityType: "national_team",
+      participantType: "country",
       normalizedInput: entity.country.name,
       acceptedReason: "country_flag",
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
     });
     debug?.normalizedInput.push(result.normalizedInput);
     debug?.candidateQueries.push(entity.country.name);
     debug?.finalResults.push(result);
     logLogoDebug("final_logo_result", { input, result });
     return result;
+  }
+
+  if (participantType && participantType !== "team" && participantType !== "country") {
+    const polymarketLogoUrl = cleanLogoUrl(input.polymarketParticipantLogoUrl ?? input.polymarketLogoUrl);
+    if (polymarketLogoUrl) {
+      const result = sportsLogoResolution({
+        logoUrl: polymarketLogoUrl,
+        teamName: input.outcomeName.trim(),
+        source: "polymarket",
+        confidence: "alias_match",
+        entityType: "club_team",
+        participantType,
+        normalizedInput: input.outcomeName.trim(),
+        acceptedReason: "polymarket_participant_logo",
+        cacheHit: true,
+        lookupMs: Date.now() - startedAt,
+      });
+      debug?.normalizedInput.push(result.normalizedInput);
+      debug?.finalResults.push(result);
+      logLogoDebug("final_logo_result", { input, result });
+      return result;
+    }
+    const fallback = sportsLogoResolution({
+      logoUrl: null,
+      teamName: input.outcomeName.trim(),
+      source: "fallback",
+      confidence: "fallback",
+      entityType: "fallback",
+      participantType,
+      normalizedInput: input.outcomeName.trim(),
+      rejectionReason: "no participant logo available",
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
+    });
+    debug?.normalizedInput.push(fallback.normalizedInput);
+    debug?.finalResults.push(fallback);
+    logLogoDebug("final_logo_result", { input, result: fallback });
+    return fallback;
   }
 
   if (entity.entityType === "non_team") {
@@ -718,6 +783,8 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
       entityType: "non_team",
       normalizedInput: input.outcomeName.trim(),
       rejectionReason: entity.rejectionReason,
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
     });
     debug?.normalizedInput.push(fallback.normalizedInput);
     debug?.finalResults.push(fallback);
@@ -737,6 +804,8 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
       entityType: "fallback",
       normalizedInput: input.outcomeName.trim(),
       rejectionReason: "no confident team candidate",
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
     });
     debug?.normalizedInput.push(fallback.normalizedInput);
     debug?.finalResults.push(fallback);
@@ -745,7 +814,7 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   }
   debug?.normalizedInput.push(teamName);
 
-  const polymarketLogoUrl = cleanLogoUrl(input.polymarketLogoUrl);
+  const polymarketLogoUrl = cleanLogoUrl(input.polymarketLogoUrl ?? input.polymarketParticipantLogoUrl);
   if (polymarketLogoUrl) {
     const result = sportsLogoResolution({
       logoUrl: polymarketLogoUrl,
@@ -755,6 +824,8 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
       entityType: "club_team",
       normalizedInput: teamName,
       acceptedReason: "polymarket_team_logo",
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
     });
     debug?.finalResults.push(result);
     logLogoDebug("provider_attempted", { teamName, provider: "polymarket", resolvedLogoUrl: polymarketLogoUrl });
@@ -767,7 +838,9 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   const cache = getCache();
   const cached = bypassCache ? undefined : cache.get(cacheKey);
   if (!bypassCache && cached && cached.expiresAt > Date.now()) {
-    if (cached.value) return cached.value;
+    if (cached.value) {
+      return { ...cached.value, cacheHit: true, lookupMs: Date.now() - startedAt };
+    }
     if (cached.promise) return cached.promise;
   }
 
@@ -790,13 +863,14 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
 
   if (!bypassCache) cache.set(cacheKey, { expiresAt: Date.now() + SUCCESS_CACHE_TTL_MS, promise });
   const value = await promise;
-  debug?.finalResults.push(value);
-  logLogoDebug("final_logo_result", { input: { ...input, resolvedTeamName: teamName }, result: value });
+  const timedValue = { ...value, cacheHit: false, lookupMs: Date.now() - startedAt };
+  debug?.finalResults.push(timedValue);
+  logLogoDebug("final_logo_result", { input: { ...input, resolvedTeamName: teamName }, result: timedValue });
   if (!bypassCache) {
-    const ttl = value.logoUrl ? SUCCESS_CACHE_TTL_MS : FALLBACK_CACHE_TTL_MS;
-    cache.set(cacheKey, { expiresAt: Date.now() + ttl, value });
+    const ttl = timedValue.logoUrl ? SUCCESS_CACHE_TTL_MS : FALLBACK_CACHE_TTL_MS;
+    cache.set(cacheKey, { expiresAt: Date.now() + ttl, value: timedValue });
   }
-  return value;
+  return timedValue;
 }
 
 export async function resolveSportsLogo(input: SportsLogoInput): Promise<SportsLogoResolution> {

@@ -58,12 +58,19 @@ export type MarketOutcomeOption = {
   bestBid?: number;
   bestAsk?: number;
   polymarketTeamLogoUrl?: string;
+  polymarketParticipantLogoUrl?: string;
   polymarketTeamId?: string | number;
   polymarketTeamAbbreviation?: string;
   polymarketTeamName?: string;
+  polymarketParticipantId?: string | number;
+  polymarketParticipantName?: string;
+  polymarketParticipantAbbreviation?: string;
+  polymarketParticipantSlug?: string;
   sportsMonksTeamId?: string | number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
+  isLogoOutcome?: boolean;
+  participantType?: "team" | "player" | "driver" | "fighter" | "constructor" | "country" | "generic";
   entityType?: "club_team" | "national_team" | "fallback" | "non_team";
   outcomeLogoUrl?: string;
   teamDisplayName?: string;
@@ -383,12 +390,19 @@ export function getMarketOutcomes(market: RawOutcomeMarket): MarketOutcomeOption
         bestBid: Number.isFinite(outcome.bestBid) ? outcome.bestBid : undefined,
         bestAsk: Number.isFinite(outcome.bestAsk) ? outcome.bestAsk : undefined,
         ...(outcome.polymarketTeamLogoUrl ? { polymarketTeamLogoUrl: outcome.polymarketTeamLogoUrl } : {}),
+        ...(outcome.polymarketParticipantLogoUrl ? { polymarketParticipantLogoUrl: outcome.polymarketParticipantLogoUrl } : {}),
         ...(outcome.sportsMonksTeamId !== undefined ? { sportsMonksTeamId: outcome.sportsMonksTeamId } : {}),
         ...(outcome.canonicalTeamName ? { canonicalTeamName: outcome.canonicalTeamName } : {}),
         ...(typeof outcome.isTeamOutcome === "boolean" ? { isTeamOutcome: outcome.isTeamOutcome } : {}),
+        ...(typeof outcome.isLogoOutcome === "boolean" ? { isLogoOutcome: outcome.isLogoOutcome } : {}),
         ...(outcome.entityType ? { entityType: outcome.entityType } : {}),
         ...(outcome.outcomeLogoUrl ? { outcomeLogoUrl: outcome.outcomeLogoUrl } : {}),
+        ...(outcome.polymarketParticipantId !== undefined ? { polymarketParticipantId: outcome.polymarketParticipantId } : {}),
+        ...(outcome.polymarketParticipantName ? { polymarketParticipantName: outcome.polymarketParticipantName } : {}),
+        ...(outcome.polymarketParticipantAbbreviation ? { polymarketParticipantAbbreviation: outcome.polymarketParticipantAbbreviation } : {}),
+        ...(outcome.polymarketParticipantSlug ? { polymarketParticipantSlug: outcome.polymarketParticipantSlug } : {}),
         ...(outcome.teamDisplayName ? { teamDisplayName: outcome.teamDisplayName } : {}),
+        ...(outcome.participantType ? { participantType: outcome.participantType } : {}),
         ...(outcome.logoSource ? { logoSource: outcome.logoSource } : {}),
         ...(outcome.logoConfidence ? { logoConfidence: outcome.logoConfidence } : {}),
       };
@@ -445,7 +459,9 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const style = marketColors(market, favored.name);
   const confidentLogo = (outcome?: MarketOutcomeOption) =>
     outcome?.outcomeLogoUrl &&
-    outcome.isTeamOutcome !== false &&
+    outcome.isLogoOutcome !== false &&
+    outcome.entityType !== "fallback" &&
+    outcome.entityType !== "non_team" &&
     (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(outcome.logoConfidence))
       ? outcome.outcomeLogoUrl
       : undefined;

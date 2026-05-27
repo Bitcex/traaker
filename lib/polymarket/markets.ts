@@ -5,6 +5,7 @@ import { hasSportsSignal } from "./marketFilters";
 import { mockChart, mockMarkets, mockOrderbook, mockTrades } from "./mock";
 import { resolveSportsLogo } from "@/lib/sports/logoResolver";
 import { extractMarketTeams } from "@/lib/sports/marketTeamExtractor";
+import { resolvePolymarketParticipantOutcome } from "@/lib/polymarket/participants";
 import { peekPolymarketTeamLogo, warmPolymarketTeamLogo } from "@/lib/polymarket/teams";
 import type { MarketChartPoint, MarketStatus, NormalizedOrderbook, RecentTrade, TerminalMarket } from "./types";
 
@@ -69,12 +70,19 @@ type NormalizedMarketOutcome = {
   bestBid?: number;
   bestAsk?: number;
   polymarketTeamLogoUrl?: string;
+  polymarketParticipantLogoUrl?: string;
   polymarketTeamId?: string | number;
   polymarketTeamAbbreviation?: string;
   polymarketTeamName?: string;
+  polymarketParticipantId?: string | number;
+  polymarketParticipantName?: string;
+  polymarketParticipantAbbreviation?: string;
+  polymarketParticipantSlug?: string;
   sportsMonksTeamId?: string | number;
   canonicalTeamName?: string;
   isTeamOutcome?: boolean;
+  isLogoOutcome?: boolean;
+  participantType?: "team" | "player" | "driver" | "fighter" | "constructor" | "country" | "generic";
   entityType?: "club_team" | "national_team" | "fallback" | "non_team";
 };
 
@@ -303,11 +311,18 @@ function matchingRecordFromArray(items: unknown[], outcomeName: string) {
   return items.find((item) => normalizeOutcomeText(nameFromRecord(item)) === normalizedOutcome) ?? null;
 }
 
-function outcomeTeamMetadata(raw: GammaMarket, index: number, token: Record<string, unknown>, outcomeName: string) {
+function outcomeTeamMetadata(raw: GammaMarket, index: number, token: Record<string, unknown>, outcomeName: string, title = asString(pick(raw, ["question", "title", "q", "name"]), "")) {
   const rawOutcome = parseArray(raw.outcomes)[index];
   const directRecords = [token, rawOutcome].filter((item) => item && typeof item === "object");
   const logoArrays = [raw.outcomeLogos, raw.outcome_logos, raw.teamLogos, raw.team_logos, raw.logos].map(parseArray);
   const matchedTeam = matchingRecordFromArray(parseArray(pick(raw, ["teams", "participants", "competitors"], [])), outcomeName);
+  const participant = resolvePolymarketParticipantOutcome(raw, index, token, outcomeName, {
+    sport: asString(pick(raw, ["sport", "sportName", "sport_name"], ""), ""),
+    category: asString(pick(raw, ["category", "subcategory"], ""), ""),
+    league: asString(pick(raw, ["league", "competition", "series"], ""), ""),
+    marketTitle: title,
+    outcomeName,
+  });
 
   const polymarketTeamLogoUrl =
     directRecords.map(logoFromRecord).find(Boolean) ??
@@ -316,10 +331,21 @@ function outcomeTeamMetadata(raw: GammaMarket, index: number, token: Record<stri
   const sportsMonksTeamId =
     directRecords.map(sportsMonksTeamIdFromRecord).find((value) => value !== undefined) ??
     sportsMonksTeamIdFromRecord(matchedTeam);
+  const participantLogoUrl = participant.polymarketParticipantLogoUrl ?? undefined;
+  const participantType = participant.participantType;
+  const isLogoOutcome = participantType !== "generic" && participantType !== undefined;
 
   return {
     ...(polymarketTeamLogoUrl ? { polymarketTeamLogoUrl } : {}),
+    ...(participantLogoUrl ? { polymarketParticipantLogoUrl: participantLogoUrl } : {}),
     ...(sportsMonksTeamId !== undefined ? { sportsMonksTeamId } : {}),
+    ...(participant.participantId !== undefined ? { polymarketParticipantId: participant.participantId } : {}),
+    ...(participant.participantName ? { polymarketParticipantName: participant.participantName } : {}),
+    ...(participant.participantAbbreviation ? { polymarketParticipantAbbreviation: participant.participantAbbreviation } : {}),
+    ...(participant.participantSlug ? { polymarketParticipantSlug: participant.participantSlug } : {}),
+    ...(participant.participantType ? { participantType } : {}),
+    ...(typeof isLogoOutcome === "boolean" ? { isLogoOutcome } : {}),
+    ...(participant.participantDisplayName ? { teamDisplayName: participant.participantDisplayName } : {}),
   };
 }
 
@@ -357,7 +383,7 @@ function buildOutcomeOptions(raw: GammaMarket) {
     const tokenId = rawTokenIds[index] || tokenIdFromRecord(token);
     const bestBid = asNumber(pick(token, ["bestBid", "best_bid"], Number.NaN), Number.NaN);
     const bestAsk = asNumber(pick(token, ["bestAsk", "best_ask"], Number.NaN), Number.NaN);
-    const metadata = outcomeTeamMetadata(raw, index, token, name);
+    const metadata = outcomeTeamMetadata(raw, index, token, name, title);
     return {
       name: name.trim() || fallbackOutcomeName(index),
       price,
@@ -483,6 +509,8 @@ function inferSport(text: string) {
   if (lower.includes("nfl") || lower.includes("football")) return "Football";
   if (lower.includes("mlb") || lower.includes("baseball")) return "Baseball";
   if (lower.includes("nhl") || lower.includes("hockey")) return "Hockey";
+  if (lower.includes("cricket") || lower.includes("ipl")) return "Cricket";
+  if (lower.includes("formula 1") || lower.includes("formula one") || lower.includes("f1") || lower.includes("racing")) return "F1";
   if (lower.includes("ncaa") || lower.includes("ncaaf") || lower.includes("ncaab")) return "NCAA";
   if (lower.includes("soccer") || lower.includes("league") || lower.includes("cup")) return "Soccer";
   if (lower.includes("ufc") || lower.includes("mma") || lower.includes("fight")) return "MMA";
@@ -493,7 +521,7 @@ function inferSport(text: string) {
 
 function inferLeague(text: string, sport: string) {
   const upper = text.toUpperCase();
-  for (const league of ["NBA", "NFL", "MLB", "NHL", "NCAA", "UFC", "MMA", "EPL", "UCL", "MLS", "F1"]) {
+  for (const league of ["NBA", "NFL", "MLB", "NHL", "IPL", "CRICKET", "NCAA", "UFC", "MMA", "EPL", "UCL", "MLS", "F1"]) {
     if (upper.includes(league)) return league;
   }
   return sport;
@@ -648,8 +676,10 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
             outcomeName: canonicalTeam ?? outcome.name,
             category: market.league,
             sport: market.sport,
-            polymarketLogoUrl: matchedPolymarketTeamLogoUrl ?? undefined,
+            polymarketLogoUrl: matchedPolymarketTeamLogoUrl ?? outcome.polymarketTeamLogoUrl ?? undefined,
+            polymarketParticipantLogoUrl: outcome.polymarketParticipantLogoUrl ?? undefined,
             sportsMonksTeamId: outcome.sportsMonksTeamId,
+            participantType: outcome.participantType,
           });
           if (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1") {
             console.info("[Traak] sports logo debug", {
@@ -661,11 +691,15 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
               polymarketDebug: matchedPolymarketDebug,
               providerAttempted: logo.providerUsed,
               resolvedLogoUrl: logo.logoUrl,
+              participantType: logo.participantType,
+              lookupMs: logo.lookupMs,
+              cacheHit: logo.cacheHit,
               genericLogoChosen: !logo.logoUrl || logo.entityType === "fallback" || logo.entityType === "non_team",
             });
           }
           const confidentLogo = ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(logo.confidence);
           const isTeamOutcome = logo.entityType === "club_team" || logo.entityType === "national_team";
+          const isLogoOutcome = outcome.isLogoOutcome !== false && (logo.entityType !== "fallback" && logo.entityType !== "non_team");
           const teamDisplayName = logo.teamDisplayName || canonicalTeam || logo.normalizedInput;
           const baseOutcome = { ...outcome };
           delete baseOutcome.outcomeLogoUrl;
@@ -680,8 +714,8 @@ export async function enrichMarketOutcomeLogos(markets: TerminalMarket[]): Promi
             ...(isTeamOutcome ? { canonicalTeamName: canonicalTeam ?? logo.normalizedInput } : {}),
             isTeamOutcome,
             entityType: logo.entityType,
-            ...(logo.logoUrl && confidentLogo && isTeamOutcome ? { outcomeLogoUrl: logo.logoUrl } : {}),
-            ...(isTeamOutcome ? { teamDisplayName } : {}),
+            ...(logo.logoUrl && confidentLogo && isLogoOutcome ? { outcomeLogoUrl: logo.logoUrl } : {}),
+            ...(isLogoOutcome ? { teamDisplayName } : {}),
             logoSource: logo.logoSource,
             logoConfidence: logo.confidence,
           };

@@ -127,6 +127,62 @@ describe("sports logo resolver", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      category: "NBA",
+      sport: "Basketball",
+      marketTitle: "NBA Player Points Leader",
+      outcomeName: "Jalen Brunson",
+      participantType: "player" as const,
+      logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jalen-brunson.png",
+    },
+    {
+      category: "Tennis",
+      sport: "Tennis",
+      marketTitle: "Wimbledon Winner",
+      outcomeName: "Jannik Sinner",
+      participantType: "player" as const,
+      logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jannik-sinner.png",
+    },
+    {
+      category: "F1",
+      sport: "Formula 1",
+      marketTitle: "Monaco Grand Prix Winner",
+      outcomeName: "Max Verstappen",
+      participantType: "driver" as const,
+      logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/max-verstappen.png",
+    },
+    {
+      category: "UFC",
+      sport: "UFC",
+      marketTitle: "UFC 315 main event",
+      outcomeName: "Alex Pereira",
+      participantType: "fighter" as const,
+      logo: "https://polymarket-upload.s3.us-east-2.amazonaws.com/alex-pereira.png",
+    },
+  ])("uses Polymarket participant logos for $outcomeName", async ({ category, sport, marketTitle, outcomeName, participantType, logo }) => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      resolveSportsLogo({
+        category,
+        sport,
+        marketTitle,
+        outcomeName,
+        participantType,
+        polymarketParticipantLogoUrl: logo,
+      }),
+    ).resolves.toMatchObject({
+      logoUrl: logo,
+      source: "polymarket",
+      logoSource: "polymarket",
+      participantType,
+      acceptedReason: "polymarket_participant_logo",
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uses SportsMonks team id lookups when an id is available", async () => {
     vi.stubEnv("SPORTSMONKS_API_KEY", "sportsmonks-key");
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
@@ -518,6 +574,80 @@ describe("sports logo resolver", () => {
       { name: "Spurs", teamDisplayName: "San Antonio Spurs", polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/spurs.png", outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/spurs.png", entityType: "club_team" },
       { name: "Knicks", teamDisplayName: "New York Knicks", polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/knicks.png", outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/knicks.png", entityType: "club_team" },
       { name: "Thunder", teamDisplayName: "Oklahoma City Thunder", polymarketTeamLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/thunder.png", outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/thunder.png", entityType: "club_team" },
+    ]);
+  });
+
+  it("enriches participant outcomes with outcomeLogoUrl during market normalization", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("gamma-api.polymarket.com/teams")) {
+          return new Response(JSON.stringify([]), { status: 200 });
+        }
+        return new Response(JSON.stringify({ teams: [] }), { status: 200 });
+      }),
+    );
+
+    const [market] = await enrichMarketOutcomeLogos([
+      {
+        id: "nba-player",
+        conditionId: "condition",
+        slug: "nba-player",
+        title: "NBA Player Points Leader",
+        sport: "Basketball",
+        league: "NBA",
+        status: "upcoming",
+        startTime: "2026-10-01T00:00:00.000Z",
+        endTime: null,
+        yesPrice: 0.4,
+        noPrice: 0.6,
+        volume24h: 10000,
+        volume: 10000,
+        liquidity: 5000,
+        priceMove24h: 0,
+        volume1wk: 10000,
+        volumeAcceleration: 0,
+        spread: 0.02,
+        recentTradesCount: 0,
+        opportunityScore: 1,
+        outcomes: { yes: "Jalen Brunson", no: "Jayson Tatum" },
+        tokenIds: { yes: "yes", no: "no" },
+        outcomeOptions: [
+          {
+            name: "Jalen Brunson",
+            price: 0.52,
+            tokenId: "brunson",
+            participantType: "player",
+            polymarketParticipantLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jalen-brunson.png",
+            polymarketParticipantName: "Jalen Brunson",
+          },
+          {
+            name: "Jayson Tatum",
+            price: 0.48,
+            tokenId: "tatum",
+            participantType: "player",
+            polymarketParticipantLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jayson-tatum.png",
+            polymarketParticipantName: "Jayson Tatum",
+          },
+        ],
+        source: "polymarket",
+      } satisfies TerminalMarket,
+    ]);
+
+    expect(market.outcomeOptions).toMatchObject([
+      {
+        name: "Jalen Brunson",
+        participantType: "player",
+        polymarketParticipantLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jalen-brunson.png",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jalen-brunson.png",
+      },
+      {
+        name: "Jayson Tatum",
+        participantType: "player",
+        polymarketParticipantLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jayson-tatum.png",
+        outcomeLogoUrl: "https://polymarket-upload.s3.us-east-2.amazonaws.com/jayson-tatum.png",
+      },
     ]);
   });
 

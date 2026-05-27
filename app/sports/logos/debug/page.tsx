@@ -72,12 +72,17 @@ export default async function SportsLogoDebugPage({ searchParams }: PageProps) {
                     <th className="px-3 py-2">Raw outcome</th>
                     <th className="px-3 py-2">Market team</th>
                     <th className="px-3 py-2">Matched Polymarket team</th>
+                    <th className="px-3 py-2">Participant type</th>
+                    <th className="px-3 py-2">Matched participant</th>
+                    <th className="px-3 py-2">Matched source</th>
                     <th className="px-3 py-2">Polymarket attempts</th>
                     <th className="px-3 py-2">Chosen candidate</th>
                     <th className="px-3 py-2">Team id</th>
                     <th className="px-3 py-2">Abbrev</th>
                     <th className="px-3 py-2">Polymarket logo</th>
                     <th className="px-3 py-2">Final logo</th>
+                    <th className="px-3 py-2">Lookup ms</th>
+                    <th className="px-3 py-2">Cache</th>
                     <th className="px-3 py-2">Reason</th>
                   </tr>
                 </thead>
@@ -87,12 +92,17 @@ export default async function SportsLogoDebugPage({ searchParams }: PageProps) {
                       <td className="max-w-52 px-3 py-2 align-top text-slate-100">{String(row.rawOutcomeLabel ?? row.outcomeName ?? "")}</td>
                       <td className="px-3 py-2 align-top text-slate-300">{String(row.matchedMarketTeam ?? row.canonicalTeam ?? "")}</td>
                       <td className="px-3 py-2 align-top text-slate-300">{row.matchedPolymarketTeam ? `${String((row.matchedPolymarketTeam as Record<string, unknown>).name ?? "")}` : ""}</td>
+                      <td className="px-3 py-2 align-top text-slate-300">{String(row.participantType ?? "")}</td>
+                      <td className="px-3 py-2 align-top text-slate-300">{String(row.matchedParticipant ?? "")}</td>
+                      <td className="px-3 py-2 align-top text-slate-300">{String(row.matchedSource ?? "")}</td>
                       <td className="max-w-56 break-all px-3 py-2 align-top text-slate-400">{JSON.stringify(row.polymarketAttempts ?? [])}</td>
                       <td className="max-w-56 break-all px-3 py-2 align-top text-slate-400">{JSON.stringify(row.chosenPolymarketCandidate ?? null)}</td>
                       <td className="px-3 py-2 align-top text-slate-300">{row.matchedPolymarketTeam ? String((row.matchedPolymarketTeam as Record<string, unknown>).id ?? "") : ""}</td>
                       <td className="px-3 py-2 align-top text-slate-300">{row.matchedPolymarketTeam ? String((row.matchedPolymarketTeam as Record<string, unknown>).abbreviation ?? "") : ""}</td>
                       <td className="max-w-52 break-all px-3 py-2 align-top text-cyan-200">{String((row.matchedPolymarketTeam as Record<string, unknown> | null)?.logo ?? row.polymarketTeamLogoUrl ?? "")}</td>
                       <td className="max-w-52 break-all px-3 py-2 align-top text-cyan-100">{String(row.finalLogoUrl ?? row.logoUrl ?? "")}</td>
+                      <td className="px-3 py-2 align-top text-slate-300">{String(row.lookupMs ?? "")}</td>
+                      <td className="px-3 py-2 align-top text-slate-300">{String(row.cacheHit ?? "")}</td>
                       <td className="px-3 py-2 align-top text-slate-400">{String(row.providerReason ?? row.acceptedReason ?? row.rejectionReason ?? "")}</td>
                     </tr>
                   ))}

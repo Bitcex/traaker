@@ -65,9 +65,9 @@ describe("normalizeGammaMarket", () => {
     expect(market?.noPrice).toBe(0.43);
     expect(market?.tokenIds.yes).toBe("psg-token");
     expect(market?.tokenIds.no).toBe("arsenal-token");
-    expect(market?.outcomeOptions).toEqual([
-      { name: "PSG", price: 0.59, tokenId: "psg-token", marketId: "ucl-winner", conditionId: "0xucl" },
-      { name: "Arsenal", price: 0.43, tokenId: "arsenal-token", marketId: "ucl-winner", conditionId: "0xucl" },
+    expect(market?.outcomeOptions).toMatchObject([
+      { name: "PSG", price: 0.59, tokenId: "psg-token", marketId: "ucl-winner", conditionId: "0xucl", isLogoOutcome: true, participantType: "team" },
+      { name: "Arsenal", price: 0.43, tokenId: "arsenal-token", marketId: "ucl-winner", conditionId: "0xucl", isLogoOutcome: true, participantType: "team" },
     ]);
   });
 
@@ -85,9 +85,9 @@ describe("normalizeGammaMarket", () => {
     });
 
     expect(market).not.toBeNull();
-    expect(market?.outcomeOptions).toEqual([
-      { name: "Gujarat Titans", price: 0.57, tokenId: "101", marketId: "gt-csk", conditionId: "0xipl" },
-      { name: "Chennai Super Kings", price: 0.45, tokenId: "202", marketId: "gt-csk", conditionId: "0xipl" },
+    expect(market?.outcomeOptions).toMatchObject([
+      { name: "Gujarat Titans", price: 0.57, tokenId: "101", marketId: "gt-csk", conditionId: "0xipl", isLogoOutcome: true, participantType: "team" },
+      { name: "Chennai Super Kings", price: 0.45, tokenId: "202", marketId: "gt-csk", conditionId: "0xipl", isLogoOutcome: true, participantType: "team" },
     ]);
     expect(market?.outcomes.yes).toBe("Gujarat Titans");
     expect(market?.outcomes.no).toBe("Chennai Super Kings");

@@ -18,11 +18,24 @@ const CHAMPIONSHIP_WORDS =
   /\b(to win|winner|wins?|champions?|championship|finals?|playoffs?|league|cup|season|outright|market|moneyline|advance|qualify)\b/gi;
 
 const NBA_ALIASES: Record<string, string> = {
+  bos: "Boston Celtics",
+  chi: "Chicago Bulls",
+  cle: "Cleveland Cavaliers",
+  dal: "Dallas Mavericks",
+  den: "Denver Nuggets",
+  ind: "Indiana Pacers",
+  lal: "Los Angeles Lakers",
+  mia: "Miami Heat",
+  mil: "Milwaukee Bucks",
+  min: "Minnesota Timberwolves",
+  nyk: "New York Knicks",
+  okc: "Oklahoma City Thunder",
+  phi: "Philadelphia 76ers",
+  phx: "Phoenix Suns",
   "new york knicks": "New York Knicks",
   knicks: "New York Knicks",
   "okc thunder": "Oklahoma City Thunder",
   "oklahoma city thunder": "Oklahoma City Thunder",
-  okc: "Oklahoma City Thunder",
   thunder: "Oklahoma City Thunder",
   "san antonio spurs": "San Antonio Spurs",
   spurs: "San Antonio Spurs",
@@ -37,6 +50,67 @@ const MLB_ALIASES: Record<string, string> = {
   tigers: "Detroit Tigers",
   "detroit tigers": "Detroit Tigers",
   "detroit tigers fc": "Detroit Tigers",
+};
+
+const NFL_ALIASES: Record<string, string> = {
+  ari: "Arizona Cardinals",
+  atl: "Atlanta Falcons",
+  bal: "Baltimore Ravens",
+  buf: "Buffalo Bills",
+  car: "Carolina Panthers",
+  cin: "Cincinnati Bengals",
+  cle: "Cleveland Browns",
+  dal: "Dallas Cowboys",
+  den: "Denver Broncos",
+  det: "Detroit Lions",
+  gb: "Green Bay Packers",
+  jax: "Jacksonville Jaguars",
+  kc: "Kansas City Chiefs",
+  lv: "Las Vegas Raiders",
+  mia: "Miami Dolphins",
+  min: "Minnesota Vikings",
+  ne: "New England Patriots",
+  no: "New Orleans Saints",
+  nyg: "New York Giants",
+  nyj: "New York Jets",
+  phi: "Philadelphia Eagles",
+  pit: "Pittsburgh Steelers",
+  sf: "San Francisco 49ers",
+  sea: "Seattle Seahawks",
+  tb: "Tampa Bay Buccaneers",
+  ten: "Tennessee Titans",
+  wsh: "Washington Commanders",
+};
+
+const NHL_ALIASES: Record<string, string> = {
+  ana: "Anaheim Ducks",
+  bos: "Boston Bruins",
+  buf: "Buffalo Sabres",
+  cal: "Calgary Flames",
+  car: "Carolina Hurricanes",
+  cbj: "Columbus Blue Jackets",
+  chi: "Chicago Blackhawks",
+  col: "Colorado Avalanche",
+  dal: "Dallas Stars",
+  det: "Detroit Red Wings",
+  edm: "Edmonton Oilers",
+  fla: "Florida Panthers",
+  la: "Los Angeles Kings",
+  mtl: "Montreal Canadiens",
+  njd: "New Jersey Devils",
+  nyr: "New York Rangers",
+  nyi: "New York Islanders",
+  ott: "Ottawa Senators",
+  phi: "Philadelphia Flyers",
+  pit: "Pittsburgh Penguins",
+  sj: "San Jose Sharks",
+  sea: "Seattle Kraken",
+  stl: "St. Louis Blues",
+  tb: "Tampa Bay Lightning",
+  tor: "Toronto Maple Leafs",
+  van: "Vancouver Canucks",
+  vgk: "Vegas Golden Knights",
+  wpg: "Winnipeg Jets",
 };
 
 const OUTCOME_LINE_SUFFIX_PATTERN = /(?:\s+\d+){1,4}$/;
@@ -99,6 +173,8 @@ export function cleanOutcomeTeamCandidate(value: string) {
 function contextualAliases(category?: string, sport?: string) {
   const normalizedCategory = normalizeCategory(category, sport);
   if (normalizedCategory === "NBA") return { ...TEAM_ALIASES, ...NBA_ALIASES };
+  if (normalizedCategory === "NFL") return { ...TEAM_ALIASES, ...NFL_ALIASES };
+  if (normalizedCategory === "NHL") return { ...TEAM_ALIASES, ...NHL_ALIASES };
   if (normalizedCategory === "MLB" || compactTeamText(`${category ?? ""} ${sport ?? ""}`).includes("baseball")) {
     return { ...TEAM_ALIASES, ...MLB_ALIASES };
   }
@@ -109,6 +185,8 @@ function normalizeCategory(category?: string, sport?: string) {
   const value = compactTeamText(`${category ?? ""} ${sport ?? ""}`);
   if (/\bnba|basketball|wnba\b/.test(value)) return "NBA";
   if (/\bnfl|american football|super bowl\b/.test(value)) return "NFL";
+  if (/\bnhl|hockey\b/.test(value)) return "NHL";
+  if (/\bmlb|baseball\b/.test(value)) return "MLB";
   if (/\bsoccer|premier league|champions league|ucl|epl|uefa|fifa|mls|laliga|serie a|bundesliga\b/.test(value)) return "Soccer";
   if (/\bufc|mma|fight|fighter|boxing\b/.test(value)) return "UFC";
   if (/\btennis|atp|wta|wimbledon|french open|us open|australian open\b/.test(value)) return "Tennis";
