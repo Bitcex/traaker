@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Flame, RefreshCw, Search, Sparkles } from "lucide-react";
+import { ArrowRight, ChevronDown, RefreshCw, Search, Sparkles } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchLatestMarketForNode, MarketBubbleMap, marketToBubbleNode, type MarketBubbleNode } from "@/components/MarketBubbleMap";
@@ -357,32 +357,51 @@ export function MarketsExplorer({
 
         <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
 
-        <div className="mt-5 flex items-center gap-3 overflow-x-auto rounded-xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
-          <div className="flex min-w-fit items-center gap-3 pr-2">
-            <span className="grid h-11 w-11 place-items-center rounded-full border border-orange-300/20 bg-slate-950 text-orange-300 shadow-[0_0_22px_rgba(251,146,60,0.12)]">
-              <Flame className="h-5 w-5" />
-            </span>
-            <div className="leading-tight">
-              <p className="text-lg font-bold text-slate-50">Trending</p>
-              <p className="text-lg font-bold text-slate-50">Now</p>
+        <div className="mt-5 rounded-2xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
+          <div className="mb-4 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Trending Now</p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-50">Popular market collections</h2>
             </div>
+            <p className="hidden text-sm text-slate-400 sm:block">Tap a card to switch the board.</p>
           </div>
-          {featuredCategories.map((item) => (
-            <button
-              className="flex min-w-[12rem] items-center gap-3 rounded-lg border border-slate-800 bg-slate-950/35 px-4 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
-            key={item.title}
-            onClick={() => {
-                activateFeaturedCategory(item.sport);
-              }}
-            type="button"
-          >
-              <SportIcon src={item.icon} fallback={item.fallback} className="h-7 w-7" />
-              <span>
-                <span className="block font-bold text-slate-100">{item.title}</span>
-                <span className="block text-sm text-slate-400">{item.detail}</span>
-              </span>
-            </button>
-          ))}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {featuredCategories.map((item) => {
+              const active = sport === item.sport;
+              return (
+                <button
+                  aria-pressed={active}
+                  className={`group flex min-h-[96px] items-center justify-between gap-3 rounded-xl border p-4 text-left transition duration-200 ${
+                    active
+                      ? "border-cyan-300/60 bg-cyan-300/10 shadow-[0_0_24px_rgba(34,211,238,0.10),inset_0_1px_0_rgba(255,255,255,0.04)]"
+                      : "border-slate-800 bg-slate-950/35 hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
+                  }`}
+                  key={item.title}
+                  onClick={() => {
+                    activateFeaturedCategory(item.sport);
+                  }}
+                  type="button"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <SportIcon src={item.icon} fallback={item.fallback} className="h-9 w-9" />
+                    <div className="min-w-0">
+                      <span className="block truncate font-bold text-slate-100">{item.title}</span>
+                      <span className="mt-1 block text-sm text-slate-400">{item.detail}</span>
+                    </div>
+                  </div>
+                  <span
+                    className={`grid h-9 w-9 shrink-0 place-items-center rounded-full border transition ${
+                      active
+                        ? "border-cyan-300/30 bg-cyan-300/14 text-cyan-100"
+                        : "border-slate-700 bg-slate-950/60 text-slate-400 group-hover:border-cyan-300/30 group-hover:text-cyan-100"
+                    }`}
+                  >
+                    <ArrowRight className="h-4 w-4" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
 
