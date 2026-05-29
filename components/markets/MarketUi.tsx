@@ -98,6 +98,18 @@ export function OutcomeCard({
   const displayLogoUrl = logoUrl && !failedLogoUrls.includes(logoUrl) ? logoUrl : undefined;
   const logoIsExternal = displayLogoUrl ? /^https?:\/\//i.test(displayLogoUrl) : false;
 
+  if (process.env.NEXT_PUBLIC_LOGO_DEBUG === "1" || process.env.NEXT_PUBLIC_LOGO_DEBUG === "true") {
+    console.info("[Traak] OutcomeCard logo props", {
+      name,
+      teamDisplayName: teamDisplayName ?? null,
+      logoUrl: logoUrl ?? null,
+      displayLogoUrl: displayLogoUrl ?? null,
+      fallbackIcon: fallbackIcon ?? null,
+      fallbackIconSrc: fallbackIconSrc ?? null,
+      selected,
+    });
+  }
+
   return (
     <button
       className={`grid min-h-[66px] w-full grid-cols-[2.5rem_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border px-3 py-3 text-left transition duration-200 ${

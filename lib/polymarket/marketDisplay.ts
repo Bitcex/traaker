@@ -26,6 +26,9 @@ type MarketLogoSelectionInput = {
 export function shouldUseOutcomeTeamLogos(market: MarketLogoSelectionInput) {
   const outcomeOptions = market.outcomeOptions ?? (Array.isArray(market.outcomes) ? market.outcomes : []);
   if (outcomeOptions.length !== 2) return false;
+  const title = `${market.title ?? ""} ${market.league ?? ""} ${market.sport ?? ""}`.toLowerCase();
+  if (!/\b(vs\.?|vs|v\.?|versus|at|@)\b/.test(title)) return false;
+  if (/\b(winner|champion|champions|outright|finals?|cup|league|season|market|moneyline|qualify|advance)\b/.test(title)) return false;
 
   const extraction = extractMarketTeams({
     marketTitle: market.title,
@@ -119,18 +122,14 @@ function fallbackLabel(name: string) {
 function outcomeVisualFromOutcome(
   outcome: NonNullable<TerminalMarket["outcomeOptions"]>[number] | undefined,
   fallbackName: string,
-  sharedIconUrl: string | null,
-  useTeamLogos: boolean,
 ): MarketOutcomeVisual {
   const name = outcome?.teamDisplayName?.trim() || outcome?.polymarketParticipantName?.trim() || outcome?.polymarketTeamName?.trim() || outcome?.name?.trim() || fallbackName;
-  const logoUrl = useTeamLogos
-    ? cleanLogoUrl(
-        outcome?.outcomeLogoUrl ??
-          outcome?.polymarketParticipantLogoUrl ??
-          outcome?.polymarketTeamLogoUrl ??
-          null,
-      )
-    : sharedIconUrl;
+  const logoUrl = cleanLogoUrl(
+    outcome?.outcomeLogoUrl ??
+      outcome?.polymarketParticipantLogoUrl ??
+      outcome?.polymarketTeamLogoUrl ??
+      null,
+  );
 
   return {
     name,
@@ -142,13 +141,11 @@ function outcomeVisualFromOutcome(
 
 export function getMarketOutcomeVisuals(market: Pick<TerminalMarket, "outcomeOptions" | "outcomes" | "title" | "image" | "sport" | "league">) {
   const outcomeOptions = market.outcomeOptions ?? [];
-  const useTeamLogos = shouldUseOutcomeTeamLogos(market);
-  const sharedIconUrl = sharedMarketOutcomeIconUrl(market);
   const yesOutcome = outcomeOptions[0] ?? { name: market.outcomes.yes };
   const noOutcome = outcomeOptions[1] ?? { name: market.outcomes.no };
 
   return {
-    yes: outcomeVisualFromOutcome(yesOutcome, market.outcomes.yes, sharedIconUrl, useTeamLogos),
-    no: outcomeVisualFromOutcome(noOutcome, market.outcomes.no, sharedIconUrl, useTeamLogos),
+    yes: outcomeVisualFromOutcome(yesOutcome, market.outcomes.yes),
+    no: outcomeVisualFromOutcome(noOutcome, market.outcomes.no),
   };
 }

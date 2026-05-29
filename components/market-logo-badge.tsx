@@ -25,6 +25,10 @@ export function MarketLogoBadge({
   const trimmedLogoUrl = logoUrl?.trim() ?? "";
   const displayLogoUrl = trimmedLogoUrl && !failedLogoUrls.includes(trimmedLogoUrl) ? trimmedLogoUrl : "";
 
+  if (process.env.NEXT_PUBLIC_LOGO_DEBUG === "1" || process.env.NEXT_PUBLIC_LOGO_DEBUG === "true") {
+    console.info("[Traak] MarketLogoBadge", { label, logoUrl: trimmedLogoUrl || null, displayLogoUrl: displayLogoUrl || null, size });
+  }
+
   return (
     <span
       className={`inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full border border-slate-700/80 bg-slate-950/80 text-[10px] font-black uppercase tracking-[0.08em] text-slate-100 shadow-inner shadow-black/30 ${className}`}

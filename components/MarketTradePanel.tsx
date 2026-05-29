@@ -83,13 +83,22 @@ function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string 
   return market.outcomes.find((outcome) => outcome.name === preferred) ?? market.outcomes.find((outcome) => outcome.name === market.favoredOutcome) ?? market.outcomes[0];
 }
 
-function confidentOutcomeLogo(outcome: { outcomeLogoUrl?: string; logoConfidence?: string; isTeamOutcome?: boolean; isLogoOutcome?: boolean; entityType?: string }) {
-  if (!outcome.outcomeLogoUrl) return undefined;
+function confidentOutcomeLogo(outcome: {
+  outcomeLogoUrl?: string;
+  polymarketParticipantLogoUrl?: string;
+  polymarketTeamLogoUrl?: string;
+  logoConfidence?: string;
+  isTeamOutcome?: boolean;
+  isLogoOutcome?: boolean;
+  entityType?: string;
+}, sharedLogo?: string | null) {
+  const resolved = outcome.outcomeLogoUrl ?? outcome.polymarketParticipantLogoUrl ?? outcome.polymarketTeamLogoUrl ?? sharedLogo ?? undefined;
+  if (!resolved) return undefined;
   if (outcome.isLogoOutcome === false) return undefined;
   if (outcome.entityType === "fallback" || outcome.entityType === "non_team") return undefined;
-  const hostIndex = outcome.outcomeLogoUrl.lastIndexOf(POLYMARKET_UPLOAD_HOST);
+  const hostIndex = resolved.lastIndexOf(POLYMARKET_UPLOAD_HOST);
   const displayLogoUrl =
-    hostIndex > 0 ? `${POLYMARKET_UPLOAD_HOST}${outcome.outcomeLogoUrl.slice(hostIndex + POLYMARKET_UPLOAD_HOST.length)}` : outcome.outcomeLogoUrl;
+    hostIndex > 0 ? `${POLYMARKET_UPLOAD_HOST}${resolved.slice(hostIndex + POLYMARKET_UPLOAD_HOST.length)}` : resolved;
   if (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(outcome.logoConfidence)) {
     return displayLogoUrl;
   }
@@ -598,7 +607,7 @@ export function MarketTradePanel({
           <div className="traak-scrollbar grid max-h-[min(44svh,460px)] gap-2 overflow-y-auto pr-1">
             {displayMarket.outcomes.map((outcome) => {
               const selected = outcome.name === selectedOutcome?.name;
-              const logoUrl = useTeamLogos ? confidentOutcomeLogo(outcome) : sharedMarketLogo;
+              const logoUrl = confidentOutcomeLogo(outcome, useTeamLogos ? undefined : sharedMarketLogo) ?? sharedMarketLogo;
               return (
                 <OutcomeCard
                   key={`${displayMarket.id}-${outcome.name}`}
