@@ -21,8 +21,8 @@ export function MarketLogoBadge({
   size?: number;
   className?: string;
 }) {
-  const [failed, setFailed] = useState(false);
-  const displayLogoUrl = logoUrl?.trim() && !failed ? logoUrl.trim() : "";
+  const [failedLogoUrl, setFailedLogoUrl] = useState<string | undefined>();
+  const displayLogoUrl = logoUrl?.trim() && failedLogoUrl !== logoUrl.trim() ? logoUrl.trim() : "";
 
   return (
     <span
@@ -38,7 +38,7 @@ export function MarketLogoBadge({
           height={size}
           src={displayLogoUrl}
           width={size}
-          onError={() => setFailed(true)}
+          onError={() => setFailedLogoUrl(displayLogoUrl)}
         />
       ) : (
         <span className="leading-none">{initials(label)}</span>

@@ -839,25 +839,54 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   }
   debug?.normalizedInput.push(teamName);
 
-  const polymarketLogoUrl = cleanLogoUrl(input.polymarketLogoUrl ?? input.polymarketParticipantLogoUrl);
-  if (polymarketLogoUrl) {
+  const polymarketParticipantLogoUrl = cleanLogoUrl(input.polymarketParticipantLogoUrl);
+  if (polymarketParticipantLogoUrl) {
     const result = sportsLogoResolution({
-      logoUrl: polymarketLogoUrl,
+      logoUrl: polymarketParticipantLogoUrl,
       teamName,
       source: "polymarket",
       confidence: candidate.confidence,
       entityType: "club_team",
       normalizedInput: teamName,
-      acceptedReason: "polymarket_team_logo",
+      acceptedReason: "polymarket_participant_logo",
       cacheHit: true,
       lookupMs: Date.now() - startedAt,
     });
     debug?.finalResults.push(result);
-    logLogoDebug("provider_attempted", { teamName, provider: "polymarket", resolvedLogoUrl: polymarketLogoUrl });
+    logLogoDebug("provider_attempted", { teamName, provider: "polymarket", resolvedLogoUrl: polymarketParticipantLogoUrl });
     logLogoDebug("final_logo_result", { input: { ...input, resolvedTeamName: teamName }, result });
     return result;
   }
 
+  const participantTeamPage = await resolvePolymarketTeamLogo(
+    input.outcomeName,
+    {
+      category: input.category,
+      sport: input.sport,
+      marketTitle: input.marketTitle,
+    },
+    { includeTeamPageLookup: true },
+  );
+  if (participantTeamPage.logoUrl) {
+    const result = sportsLogoResolution({
+      logoUrl: participantTeamPage.logoUrl,
+      teamName: participantTeamPage.match?.record.displayName?.trim() || participantTeamPage.match?.record.name?.trim() || input.outcomeName.trim(),
+      source: "polymarket",
+      confidence: "alias_match",
+      entityType: "club_team",
+      ...(participantType ? { participantType } : {}),
+      normalizedInput: input.outcomeName.trim(),
+      acceptedReason: "polymarket_participant_team_page",
+      cacheHit: true,
+      lookupMs: Date.now() - startedAt,
+    });
+    debug?.normalizedInput.push(result.normalizedInput);
+    debug?.finalResults.push(result);
+    logLogoDebug("final_logo_result", { input, result });
+    return result;
+  }
+
+  const polymarketLogoUrl = cleanLogoUrl(input.polymarketLogoUrl);
   const providerIdCachePart = input.sportsMonksTeamId === undefined || input.sportsMonksTeamId === null ? "" : `:${input.sportsMonksTeamId}`;
   const cacheKey = `${LOGO_CACHE_VERSION}:${category}:club:${compactText(teamName)}${providerIdCachePart}`;
   const cache = getCache();
@@ -873,9 +902,20 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
     .catch(() => null)
     .then((sportsMonks) => sportsMonks ?? fetchTheSportsDbTeamLogo(teamName, category, rawContext, candidate.confidence, debug))
     .catch(() => null)
-    .then((remote) =>
-      remote ??
-      sportsLogoResolution({
+    .then((remote) => {
+      if (remote) return remote;
+      if (polymarketLogoUrl) {
+        return sportsLogoResolution({
+          logoUrl: polymarketLogoUrl,
+          teamName,
+          source: "polymarket",
+          confidence: candidate.confidence,
+          entityType: "club_team",
+          normalizedInput: teamName,
+          acceptedReason: "polymarket_team_logo",
+        });
+      }
+      return sportsLogoResolution({
         logoUrl: null,
         teamName,
         source: "fallback",
@@ -883,8 +923,8 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
         entityType: "fallback",
         normalizedInput: teamName,
         rejectionReason: "no confident provider logo match",
-      }),
-    );
+      });
+    });
 
   if (!bypassCache) cache.set(cacheKey, { expiresAt: Date.now() + SUCCESS_CACHE_TTL_MS, promise });
   const value = await promise;
