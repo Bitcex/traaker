@@ -2,6 +2,8 @@ import Link from "next/link";
 import { ArrowRight, Activity } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { opportunityExplanation } from "@/lib/analytics/scoring";
+import { MarketMatchupLogos } from "@/components/market-logo-badge";
+import { getMarketOutcomeVisuals } from "@/lib/polymarket/marketDisplay";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
 const money = (value: number) =>
@@ -35,7 +37,9 @@ export function MarketRows({ markets }: { markets: TerminalMarket[] }) {
         <span>Score</span>
       </div>
       <div className="divide-y divide-slate-800">
-        {markets.map((market) => (
+        {markets.map((market) => {
+          const visuals = getMarketOutcomeVisuals(market);
+          return (
           <div
             className="grid gap-4 bg-slate-950/70 p-4 transition hover:bg-slate-900/60 xl:grid-cols-[minmax(280px,1fr)_110px_130px_100px_110px_110px_100px_90px] xl:items-center"
             key={market.id}
@@ -47,6 +51,14 @@ export function MarketRows({ markets }: { markets: TerminalMarket[] }) {
                   {market.status}
                 </Badge>
                 <Badge tone="slate">{market.league}</Badge>
+              </div>
+              <div className="mt-3">
+                <MarketMatchupLogos
+                  noLabel={visuals.no.displayName}
+                  noLogoUrl={visuals.no.logoUrl}
+                  yesLabel={visuals.yes.displayName}
+                  yesLogoUrl={visuals.yes.logoUrl}
+                />
               </div>
               <Link className="mt-2 block text-base font-semibold text-slate-50 hover:text-cyan-200" href={`/markets/${market.id}`}>
                 {market.title}
@@ -98,7 +110,8 @@ export function MarketRows({ markets }: { markets: TerminalMarket[] }) {
               <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );

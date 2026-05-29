@@ -6,6 +6,13 @@ export const DEFAULT_MARKET_MIN_VOLUME = 2_000;
 
 const finitePrice = (value: number) => (Number.isFinite(value) ? value : 0);
 
+export type MarketOutcomeVisual = {
+  name: string;
+  displayName: string;
+  logoUrl: string | null;
+  fallbackLabel: string;
+};
+
 export function getFavoredMarketPrice(market: Pick<TerminalMarket, "yesPrice" | "noPrice">) {
   return Math.max(finitePrice(market.yesPrice), finitePrice(market.noPrice));
 }
@@ -57,4 +64,50 @@ export function compareHighValueMarkets(left: TerminalMarket, right: TerminalMar
 
 export function rankHighValueMarkets(markets: TerminalMarket[], minVolume = DEFAULT_MARKET_MIN_VOLUME) {
   return markets.filter((market) => isHighValueDiscoveryMarket(market, minVolume)).sort(compareHighValueMarkets);
+}
+
+function cleanLogoUrl(value?: string | null) {
+  const url = value?.trim();
+  if (!url) return null;
+  return /^(https?:\/\/|\/)/i.test(url) ? url : null;
+}
+
+function fallbackLabel(name: string) {
+  const trimmed = name.trim();
+  if (!trimmed) return "?";
+  const words = trimmed.replace(/[^a-z0-9\s]/gi, " ").split(/\s+/).filter(Boolean);
+  if (!words.length) return trimmed.slice(0, 1).toUpperCase();
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
+function outcomeVisualFromOutcome(
+  outcome: NonNullable<TerminalMarket["outcomeOptions"]>[number] | undefined,
+  fallbackName: string,
+): MarketOutcomeVisual {
+  const name = outcome?.teamDisplayName?.trim() || outcome?.polymarketParticipantName?.trim() || outcome?.polymarketTeamName?.trim() || outcome?.name?.trim() || fallbackName;
+  const logoUrl = cleanLogoUrl(
+    outcome?.outcomeLogoUrl ??
+      outcome?.polymarketParticipantLogoUrl ??
+      outcome?.polymarketTeamLogoUrl ??
+      null,
+  );
+
+  return {
+    name,
+    displayName: name,
+    logoUrl,
+    fallbackLabel: fallbackLabel(name),
+  };
+}
+
+export function getMarketOutcomeVisuals(market: Pick<TerminalMarket, "outcomeOptions" | "outcomes" | "title">) {
+  const outcomeOptions = market.outcomeOptions ?? [];
+  const yesOutcome = outcomeOptions[0] ?? { name: market.outcomes.yes };
+  const noOutcome = outcomeOptions[1] ?? { name: market.outcomes.no };
+
+  return {
+    yes: outcomeVisualFromOutcome(yesOutcome, market.outcomes.yes),
+    no: outcomeVisualFromOutcome(noOutcome, market.outcomes.no),
+  };
 }

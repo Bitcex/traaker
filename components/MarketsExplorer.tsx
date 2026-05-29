@@ -7,9 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { fetchLatestMarketForNode, MarketBubbleMap, marketToBubbleNode, type MarketBubbleNode } from "@/components/MarketBubbleMap";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
+import { MarketMatchupLogos } from "@/components/market-logo-badge";
 import { marketStore } from "@/app/store/marketStore";
 import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
-import { DEFAULT_MARKET_MIN_VOLUME, hasUsefulFavoredPrice, rankHighValueMarkets } from "@/lib/polymarket/marketDisplay";
+import { DEFAULT_MARKET_MIN_VOLUME, getMarketOutcomeVisuals, hasUsefulFavoredPrice, rankHighValueMarkets } from "@/lib/polymarket/marketDisplay";
 import type { MarketPage, MarketQuerySort, MarketQueryStatus, SportsMarketDiscovery } from "@/lib/polymarket/markets";
 import type { TerminalMarket } from "@/lib/polymarket/types";
 
@@ -297,6 +298,7 @@ export function MarketsExplorer({
             {searchResults.length > 0 ? (
               searchResults.map((market, index) => {
                 const favoredPrice = Math.round(Math.max(market.yesPrice, market.noPrice) * 100);
+                const visuals = getMarketOutcomeVisuals(market);
                 return (
                   <button
                     className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-800 bg-black/35 px-3 py-2 text-left transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
@@ -306,6 +308,15 @@ export function MarketsExplorer({
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-semibold text-zinc-100">{market.title}</span>
+                      <span className="mt-1 block">
+                        <MarketMatchupLogos
+                          compact
+                          noLabel={visuals.no.displayName}
+                          noLogoUrl={visuals.no.logoUrl}
+                          yesLabel={visuals.yes.displayName}
+                          yesLogoUrl={visuals.yes.logoUrl}
+                        />
+                      </span>
                       <span className="block text-xs text-zinc-500">
                         {market.league || market.sport} · ${Math.round(market.liquidity).toLocaleString()} liq
                       </span>

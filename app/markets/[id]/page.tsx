@@ -4,16 +4,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { MarketChart } from "@/components/MarketChart";
+import { MarketLogoBadge, MarketMatchupLogos } from "@/components/market-logo-badge";
 import { MetricCard } from "@/components/MetricCard";
 import { OrderbookDepth } from "@/components/OrderbookDepth";
 import { liquidityScore, momentumScore, opportunityExplanation, spreadScore, volatilityScore, volumeSpikeIndicator } from "@/lib/analytics/scoring";
 import { fetchMarketChart, fetchOrderbook, fetchRecentTrades, getMarketById } from "@/lib/polymarket/markets";
+import { getMarketOutcomeVisuals } from "@/lib/polymarket/marketDisplay";
 
 export const dynamic = "force-dynamic";
 
 export default async function MarketDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const market = await getMarketById(id);
+  const visuals = getMarketOutcomeVisuals(market);
   const [chart, orderbook, trades] = await Promise.all([
     fetchMarketChart(market.tokenIds.yes, market.yesPrice),
     fetchOrderbook(market.tokenIds.yes),
@@ -36,6 +39,14 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
             <Badge tone={market.status === "live" ? "green" : "cyan"}>{market.status}</Badge>
             <Badge tone="slate">{market.league}</Badge>
             <Badge tone="amber">Opportunity {market.opportunityScore}</Badge>
+          </div>
+          <div className="mt-3">
+            <MarketMatchupLogos
+              noLabel={visuals.no.displayName}
+              noLogoUrl={visuals.no.logoUrl}
+              yesLabel={visuals.yes.displayName}
+              yesLogoUrl={visuals.yes.logoUrl}
+            />
           </div>
           <h1 className="mt-3 max-w-4xl text-3xl font-semibold tracking-tight text-slate-50">{market.title}</h1>
           <p className="mt-2 text-sm text-slate-400">
@@ -61,7 +72,10 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">YES</p>
+                <div className="flex items-center gap-2">
+                  <MarketLogoBadge label={visuals.yes.displayName} logoUrl={visuals.yes.logoUrl} size={22} />
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">YES</span>
+                </div>
                 <h2 className="mt-2 text-xl font-semibold text-slate-50">{market.outcomes.yes}</h2>
                 <p className="mt-1 text-sm text-slate-400">{(market.yesPrice * 100).toFixed(1)}% implied probability</p>
               </div>
@@ -73,7 +87,10 @@ export default async function MarketDetailPage({ params }: { params: Promise<{ i
           <CardContent className="p-5">
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs uppercase tracking-[0.18em] text-slate-500">NO</p>
+                <div className="flex items-center gap-2">
+                  <MarketLogoBadge label={visuals.no.displayName} logoUrl={visuals.no.logoUrl} size={22} />
+                  <span className="text-xs uppercase tracking-[0.18em] text-slate-500">NO</span>
+                </div>
                 <h2 className="mt-2 text-xl font-semibold text-slate-50">{market.outcomes.no}</h2>
                 <p className="mt-1 text-sm text-slate-400">{(market.noPrice * 100).toFixed(1)}% implied probability</p>
               </div>

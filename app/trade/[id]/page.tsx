@@ -1,8 +1,10 @@
 import { MarketChart } from "@/components/MarketChart";
 import { MetricCard } from "@/components/MetricCard";
+import { MarketMatchupLogos } from "@/components/market-logo-badge";
 import { TradeTicket } from "@/components/TradeTicket";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fetchMarketChart, getMarketById } from "@/lib/polymarket/markets";
+import { getMarketOutcomeVisuals } from "@/lib/polymarket/marketDisplay";
 import { isRealTradingEnabled } from "@/lib/server/tradingConfig";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +19,7 @@ export default async function TradePage({
   const { id } = await params;
   const { outcome } = await searchParams;
   const market = await getMarketById(id);
+  const visuals = getMarketOutcomeVisuals(market);
   const chart = await fetchMarketChart(market.tokenIds.yes, market.yesPrice);
 
   return (
@@ -24,6 +27,14 @@ export default async function TradePage({
       <section className="space-y-6">
         <div>
           <p className="text-sm uppercase tracking-[0.24em] text-cyan-200/80">{market.league}</p>
+          <div className="mt-3">
+            <MarketMatchupLogos
+              noLabel={visuals.no.displayName}
+              noLogoUrl={visuals.no.logoUrl}
+              yesLabel={visuals.yes.displayName}
+              yesLogoUrl={visuals.yes.logoUrl}
+            />
+          </div>
           <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-50">{market.title}</h1>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
