@@ -514,7 +514,7 @@ export function MarketTradePanel({
         return (
           <Button
             aria-label={label}
-            className={`h-16 min-w-0 flex-1 flex-col gap-1 rounded-xl text-sm font-black leading-none shadow-xl shadow-black/30 transition duration-200 ${Number.isFinite(action.price) ? action.className : ""}`}
+            className={`h-20 min-w-0 flex-1 flex-col items-start justify-center gap-1.5 rounded-2xl px-4 text-left text-sm font-black leading-none shadow-xl shadow-black/30 transition duration-200 ${Number.isFinite(action.price) ? action.className : ""}`}
             disabled={disabled}
             key={action.side}
             onClick={() => void createOrder(action.side)}
@@ -523,8 +523,9 @@ export function MarketTradePanel({
             title={tradeDisabledReason ?? undefined}
           >
             {submittingSide === action.side ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            <span className="max-w-full truncate">{label}</span>
-            {Number.isFinite(action.price) ? <span aria-hidden="true" className="text-xs font-semibold opacity-80">{formatCents(action.price as number)}</span> : null}
+            <span className="text-[10px] font-semibold uppercase tracking-[0.18em] opacity-80">{action.side}</span>
+            <span className="max-w-full truncate text-base">{label}</span>
+            {Number.isFinite(action.price) ? <span aria-hidden="true" className="text-sm font-semibold opacity-80">{formatCents(action.price as number)}</span> : null}
           </Button>
         );
       }),
@@ -589,9 +590,36 @@ export function MarketTradePanel({
           </div>
         ) : null}
 
-        <div className="rounded-xl border border-slate-800/90 bg-slate-950/55 p-3 shadow-xl shadow-black/20">
+        <div className="rounded-2xl border border-slate-800/90 bg-gradient-to-b from-slate-950/80 to-slate-900/35 p-4 shadow-xl shadow-black/20">
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Selected market</p>
+              <h3 className="mt-1 truncate text-lg font-semibold text-slate-50">{selectedOutcome?.teamDisplayName || selectedOutcome?.name || "Outcome"}</h3>
+              <p className="mt-1 text-sm text-slate-400">{displayMarket.title}</p>
+            </div>
+            <div className="shrink-0 text-right">
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Quote</p>
+              <p className="mt-1 text-2xl font-black tabular-nums text-cyan-100">{selectedOutcome ? formatCents(selectedOutcome.price) : "--"}</p>
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <div className="rounded-xl border border-slate-800/80 bg-black/25 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Buy quote</p>
+              <p className="mt-1 text-base font-black tabular-nums text-emerald-200">{Number.isFinite(buyPrice) ? formatCents(buyPrice as number) : "--"}</p>
+            </div>
+            <div className="rounded-xl border border-slate-800/80 bg-black/25 px-3 py-2">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500">Sell quote</p>
+              <p className="mt-1 text-base font-black tabular-nums text-rose-200">{Number.isFinite(sellPrice) ? formatCents(sellPrice as number) : "--"}</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-slate-800/90 bg-slate-950/60 p-3 shadow-xl shadow-black/20">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Outcomes</p>
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Outcomes</p>
+              <p className="mt-1 text-sm text-slate-400">Select the side you want to trade.</p>
+            </div>
             {polymarketUrl ? (
               <a
                 className="inline-flex items-center gap-1 text-xs font-semibold text-cyan-200 transition hover:text-cyan-100"
@@ -620,23 +648,33 @@ export function MarketTradePanel({
                   selected={selected}
                   onClick={() => setSelectedOutcomeName(outcome.name)}
                 />
-            );
-          })}
+              );
+            })}
           </div>
         </div>
 
-        <label className="mt-4 block rounded-xl border border-slate-800/90 bg-slate-950/55 p-3 text-sm shadow-xl shadow-black/10">
-          <span className="text-xs uppercase tracking-[0.16em] text-slate-500">Shares</span>
-          <Input className="mt-2 h-12 rounded-lg border-slate-800 bg-black/70 text-base font-semibold shadow-inner shadow-black/20" min="0" onChange={(event) => setShares(event.target.value)} step="1" type="number" value={shares} />
+        <label className="mt-4 block rounded-2xl border border-slate-800/90 bg-slate-950/55 p-4 text-sm shadow-xl shadow-black/10">
+          <span className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Shares</span>
+          <Input
+            className="mt-3 h-12 rounded-xl border-slate-800 bg-black/70 text-base font-semibold shadow-inner shadow-black/20"
+            min="0"
+            onChange={(event) => setShares(event.target.value)}
+            step="1"
+            type="number"
+            value={shares}
+          />
         </label>
 
-        <div className="mt-4 divide-y divide-slate-800/80 overflow-hidden rounded-xl border border-slate-800/90 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(2,6,23,0.72))] text-sm shadow-xl shadow-black/15">
+        <div className="mt-4 overflow-hidden rounded-2xl border border-slate-800/90 bg-[linear-gradient(180deg,rgba(15,23,42,0.82),rgba(2,6,23,0.72))] text-sm shadow-xl shadow-black/15">
+          <div className="border-b border-slate-800/80 px-4 py-3">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">Estimate</p>
+          </div>
           <EstimateRow label="Est. cost" value={Number.isFinite(buyPrice) ? `$${(safeShares * (buyPrice as number)).toFixed(2)}` : "--"} />
           <EstimateRow label="Est. proceeds" value={Number.isFinite(sellPrice) ? `$${(safeShares * (sellPrice as number)).toFixed(2)}` : "--"} accent />
         </div>
 
         {orderId ? (
-          <div className="mt-4 rounded-xl border border-slate-800 bg-black/35 p-3 text-xs text-slate-400">
+          <div className="mt-4 rounded-2xl border border-slate-800 bg-black/35 p-4 text-xs text-slate-400">
             <span className="text-slate-500">Order hash/id</span>
             <p className="mt-1 break-all font-mono text-slate-200">{orderId}</p>
           </div>
@@ -658,10 +696,10 @@ export function MarketTradePanel({
         ) : null}
       </div>
 
-      <div className="border-t border-slate-800/90 bg-[#070a12]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)]">
+      <div className="border-t border-slate-800/90 bg-[#070a12]/98 px-4 py-4 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)]">
         <div className="grid grid-cols-2 gap-3">{actionButtons}</div>
         {tradeProgress !== "idle" ? (
-          <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200">
+          <p className="mt-3 text-[11px] uppercase tracking-[0.18em] text-cyan-200">
             {tradeProgress === "checking-wallet"
               ? "Checking wallet"
               : tradeProgress === "initializing-trading-wallet"

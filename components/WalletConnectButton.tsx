@@ -1,7 +1,7 @@
 "use client";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { ChevronDown, WalletCards } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
 export function WalletConnectButton() {
   return (
@@ -17,7 +17,6 @@ export function WalletConnectButton() {
               onClick={openConnectModal}
               type="button"
             >
-              <WalletCards className="h-4 w-4" />
               Connect
             </button>
           );
@@ -30,7 +29,6 @@ export function WalletConnectButton() {
               onClick={openChainModal}
               type="button"
             >
-              <WalletCards className="h-4 w-4" />
               Switch to Polygon
             </button>
           );
@@ -42,9 +40,6 @@ export function WalletConnectButton() {
             onClick={openAccountModal}
             type="button"
           >
-            <span className="grid h-6 w-6 place-items-center rounded-md bg-cyan-400/12 text-cyan-200">
-              <WalletCards className="h-3.5 w-3.5" />
-            </span>
             <span className="hidden h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.95)] sm:block" />
             <span className="max-w-32 truncate">{account.displayName}</span>
             <ChevronDown className="h-4 w-4 text-slate-400" />

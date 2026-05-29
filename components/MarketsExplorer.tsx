@@ -261,12 +261,6 @@ export function MarketsExplorer({
                 value={query}
               />
             </label>
-            <span
-              className="inline-flex h-12 items-center rounded-xl border border-cyan-400/20 bg-cyan-400/8 px-4 text-sm font-bold text-cyan-100"
-              title="Prices are frozen for trading stability. Press Refresh to update."
-            >
-              Snapshot
-            </span>
             <Button
               aria-label="Refresh markets"
               className="h-12 rounded-xl border border-slate-800 bg-slate-950/35 px-4 text-sm font-semibold text-slate-300 transition hover:border-slate-700 hover:bg-slate-900 hover:text-slate-100"
