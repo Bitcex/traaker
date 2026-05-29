@@ -1874,10 +1874,10 @@ function SportsFieldBackground() {
   );
 }
 
-function TraakLoadingOverlay() {
+function TraakLoadingOverlay({ label = "Loading markets" }: { label?: string }) {
   return (
     <div
-      aria-label="Loading Traak markets"
+      aria-label={label}
       className="absolute inset-0 text-slate-100 transition-opacity duration-300"
       data-testid="traak-loader"
       role="status"
@@ -1893,7 +1893,7 @@ function TraakLoadingOverlay() {
           className="h-2.5 w-2.5 rounded-full bg-cyan-300 shadow-[0_0_16px_rgba(34,211,238,0.9)]"
           style={{ animation: "traak-status-pulse 1.25s ease-in-out infinite" }}
         />
-        <span>Refreshing markets</span>
+        <span>{label}</span>
         <div className="h-3 w-3 animate-spin rounded-full border border-cyan-200/30 border-t-cyan-200" />
       </div>
     </div>
@@ -1918,7 +1918,7 @@ export function MarketBubbleMap({
   const layoutRef = useRef({ ids: "", width: 0, height: 0, isMobile: false });
   const visualStatesRef = useRef(new Map<string, BubbleVisualSmoothingState>());
   const [introStartedAt] = useState(() => Date.now());
-  const [loadingVisible, setLoadingVisible] = useState(isLoading);
+  const [loadingVisible, setLoadingVisible] = useState(isLoading && !isRefreshing);
   const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
   const [selectedPanelSnapshot, setSelectedPanelSnapshot] = useState<MarketBubbleNode | null>(null);
   const [hoveredMarket, setHoveredMarket] = useState<MarketBubbleNode | null>(null);
@@ -1933,9 +1933,10 @@ export function MarketBubbleMap({
   const backgroundTransitionRef = useRef({ previous: backgroundTheme as BackgroundTheme | null, current: backgroundTheme, startedAt: 0 });
 
   useEffect(() => {
-    const timer = window.setTimeout(() => setLoadingVisible(isLoading), isLoading ? 0 : 300);
+    const showInitialLoading = isLoading && !isRefreshing;
+    const timer = window.setTimeout(() => setLoadingVisible(showInitialLoading), showInitialLoading ? 0 : 300);
     return () => window.clearTimeout(timer);
-  }, [isLoading]);
+  }, [isLoading, isRefreshing]);
 
   useEffect(() => {
     const current = backgroundTransitionRef.current.current;
@@ -2123,7 +2124,7 @@ export function MarketBubbleMap({
 
       {loadingVisible ? (
         <div className={`absolute inset-0 z-30 transition-opacity duration-300 ${isLoading ? "opacity-100" : "pointer-events-none opacity-0"}`}>
-          <TraakLoadingOverlay />
+          <TraakLoadingOverlay label="Loading markets" />
         </div>
       ) : null}
 

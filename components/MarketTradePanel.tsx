@@ -547,17 +547,6 @@ export function MarketTradePanel({
         actions={
           <div className="flex items-center gap-1.5">
             <Button
-              aria-label="Back to bubbles"
-              className="h-8 gap-1.5 rounded-full px-3 md:hidden"
-              onClick={onClose}
-              size="sm"
-              type="button"
-              variant="ghost"
-            >
-              <ArrowLeft className="h-4 w-4" />
-              Back
-            </Button>
-            <Button
               aria-label="Refresh quote now"
               className="h-8 w-8"
               disabled={!onUpdatePrices || quoteStatus === "refreshing"}
@@ -580,7 +569,32 @@ export function MarketTradePanel({
             </Button>
           </div>
         }
-      />
+        />
+
+      <div className="border-b border-slate-800/85 bg-[#070a12]/96 px-4 py-3 md:hidden">
+        <div className="flex items-center gap-2">
+          <Button
+            aria-label="Back to markets"
+            className="h-11 flex-1 justify-start gap-2 rounded-xl border border-slate-800 bg-slate-950/55 px-3 text-sm font-semibold text-slate-100 shadow-lg shadow-black/15"
+            onClick={onClose}
+            type="button"
+            variant="ghost"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to markets
+          </Button>
+          <Button
+            aria-label="Close market details"
+            className="h-11 w-11 rounded-xl border border-slate-800 bg-slate-950/55 text-slate-300 shadow-lg shadow-black/15"
+            onClick={onClose}
+            size="icon"
+            type="button"
+            variant="ghost"
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
 
       <div className="traak-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 pb-8 sm:px-5">
         {displayMarket.activeRangeWarning ? (
@@ -607,7 +621,7 @@ export function MarketTradePanel({
               </a>
             ) : null}
           </div>
-          <div className="traak-scrollbar grid max-h-[min(52svh,540px)] gap-2 overflow-y-auto pr-2">
+          <div className="grid gap-2 pr-1 md:traak-scrollbar md:max-h-[min(52svh,540px)] md:overflow-y-auto md:pr-2">
             {displayMarket.outcomes.map((outcome) => {
               const selected = outcome.name === selectedOutcome?.name;
               const logoUrl = confidentOutcomeLogo(outcome, useTeamLogos ? undefined : sharedMarketLogo) ?? sharedMarketLogo;
@@ -671,7 +685,7 @@ export function MarketTradePanel({
         ) : null}
       </div>
 
-      <div className="border-t border-slate-800/90 bg-[#070a12]/98 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)]">
+      <div className="border-t border-slate-800/90 bg-[#070a12]/98 px-4 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)] sm:py-3">
         <div className="grid grid-cols-2 gap-3">{actionButtons}</div>
         {tradeProgress !== "idle" ? (
           <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-200">

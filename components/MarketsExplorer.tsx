@@ -348,10 +348,10 @@ export function MarketsExplorer({
           </Button>
         </div>
 
-        {isInitialLoading || isRefreshing ? (
+        {isRefreshing ? (
           <div className="mb-4 inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/8 px-4 py-2 text-sm font-semibold text-cyan-100">
             <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-            {isInitialLoading ? `Loading ${sport === "All" ? "markets" : `${sport} markets`}` : `Updating ${sport === "All" ? "markets" : `${sport} markets`}`}
+            Refreshing {sport === "All" ? "markets" : `${sport} markets`}
           </div>
         ) : null}
 
