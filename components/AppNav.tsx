@@ -23,7 +23,7 @@ export function AppNav() {
   const marketsActive = !portfolioActive;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)] shadow-[0_14px_42px_rgba(0,0,0,0.36)] backdrop-blur-2xl">
+    <header className="traak-shell-nav sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--surface)] shadow-[0_14px_42px_rgba(0,0,0,0.36)] backdrop-blur-2xl">
       <div className="mx-auto flex w-full max-w-[118rem] items-center justify-between gap-4 px-5 py-3.5 sm:px-7 lg:px-10">
         <div className="flex min-w-0 items-center gap-8">
           <Link href="/" className="flex shrink-0 items-center gap-3 text-2xl font-bold tracking-tight text-[var(--foreground)]" aria-label="Traak home">

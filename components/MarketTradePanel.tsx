@@ -558,7 +558,7 @@ export function MarketTradePanel({
   return (
     <aside
       aria-label="Market trading panel"
-      className="absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden overscroll-contain border-t border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(420px,33vw,560px)] md:border-l md:border-t-0"
+      className="traak-trade-panel absolute inset-x-0 bottom-0 z-30 flex max-h-[92svh] max-w-full flex-col overflow-hidden overscroll-contain border-t border-[var(--border)] bg-[var(--surface)] shadow-2xl shadow-black/70 backdrop-blur-2xl md:inset-x-auto md:bottom-0 md:right-0 md:top-0 md:h-full md:max-h-none md:w-[clamp(420px,33vw,560px)] md:border-l md:border-t-0"
       onClick={(event) => event.stopPropagation()}
     >
       <MarketPanelHeader

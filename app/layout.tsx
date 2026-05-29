@@ -36,7 +36,7 @@ export default function RootLayout({
           } catch (error) {}
         `}</Script>
         <Providers>
-          <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
+          <div className="traak-shell min-h-screen bg-[var(--background)] text-[var(--foreground)]">
             <AppNav />
             {children}
             <footer className="border-t border-[var(--border)] px-4 py-6 text-xs text-[var(--muted)] sm:px-6 lg:px-8">

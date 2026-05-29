@@ -206,8 +206,8 @@ export function MarketsExplorer({
   const categoryCta = sport === "All" ? "Explore markets" : `Explore ${sport}`;
 
   return (
-    <section className="relative w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      <div className="border-b border-[var(--border)] bg-[var(--surface)] shadow-xl shadow-black/25 backdrop-blur-2xl">
+    <section className="traak-market-section relative w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
+      <div className="traak-market-toolbar border-b border-[var(--border)] bg-[var(--surface)] shadow-xl shadow-black/25 backdrop-blur-2xl">
         <div className="mx-auto flex w-full max-w-[118rem] flex-col gap-4 px-5 py-4 sm:px-7 lg:flex-row lg:items-center lg:px-10">
           <div className="flex flex-wrap items-center gap-3">
             {sportPills.map((item) => {
@@ -231,9 +231,9 @@ export function MarketsExplorer({
                 </Button>
               );
             })}
-            <label className="relative inline-flex h-12 items-center gap-2 rounded-xl border border-slate-800 bg-slate-950/35 px-4 text-sm font-bold text-slate-200 shadow-lg shadow-black/15 transition hover:border-slate-700 hover:bg-slate-900/80">
+            <label className="relative inline-flex h-12 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-bold text-[var(--foreground)] shadow-lg shadow-black/15 transition hover:border-slate-700 hover:bg-[var(--surface-2)]">
               More
-              <ChevronDown className="h-4 w-4 text-slate-400" />
+              <ChevronDown className="h-4 w-4 text-[var(--muted)]" />
               <select
                 aria-label="Market range"
                 className="absolute inset-0 cursor-pointer opacity-0"
@@ -253,7 +253,7 @@ export function MarketsExplorer({
           </div>
           <div className="flex flex-1 flex-wrap items-center gap-3 lg:justify-end">
             <label className="relative block flex-1 lg:max-w-md">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
               <Input
                 className="h-12 rounded-xl pl-11 text-sm shadow-inner shadow-black/25 transition focus:border-cyan-300/60 placeholder:text-[var(--muted)]"
                 onChange={(event) => setQuery(event.target.value)}
@@ -273,7 +273,7 @@ export function MarketsExplorer({
               <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
               Refresh
             </Button>
-            {latestSource === "mock" ? <span className="rounded-lg border border-amber-500/40 px-3 py-2 text-xs font-semibold text-amber-200">Mock</span> : null}
+            {latestSource === "mock" ? <span className="rounded-lg border border-amber-500/40 px-3 py-2 text-xs font-semibold text-amber-600 dark:text-amber-200">Mock</span> : null}
           </div>
         </div>
       </div>
@@ -283,7 +283,7 @@ export function MarketsExplorer({
       ) : null}
 
       {query.trim() ? (
-        <div className="absolute right-5 top-24 z-30 w-[min(92vw,420px)] rounded-xl border border-slate-800 bg-[#090d15]/98 p-3 text-sm text-slate-100 shadow-2xl shadow-black/50 backdrop-blur-2xl lg:top-20">
+        <div className="traak-search-panel absolute right-5 top-24 z-30 w-[min(92vw,420px)] rounded-xl border border-slate-800 bg-[#090d15]/98 p-3 text-sm text-slate-100 shadow-2xl shadow-black/50 backdrop-blur-2xl lg:top-20">
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Snapshot results</p>
             <span className="text-xs text-zinc-500">{searchResults.length}</span>
@@ -329,14 +329,14 @@ export function MarketsExplorer({
       <div className="mx-auto w-full max-w-[118rem] px-5 py-7 sm:px-7 lg:px-10">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-slate-50 sm:text-4xl">Live Markets</h1>
-            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-300">
+            <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">Live Markets</h1>
+            <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-300">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.9)]" />
               Live
             </span>
           </div>
           <Button
-            className="h-11 rounded-xl border border-slate-800 bg-slate-950/40 px-4 text-sm font-semibold text-slate-200 shadow-lg shadow-black/15 transition hover:border-cyan-400/35 hover:bg-cyan-400/8"
+            className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] shadow-lg shadow-black/15 transition hover:border-cyan-400/35 hover:bg-cyan-400/8"
             onClick={() => {
               setRangeStart(0);
               setQuery("");
@@ -349,7 +349,7 @@ export function MarketsExplorer({
         </div>
 
         {isRefreshing ? (
-          <div className="mb-4 inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/8 px-4 py-2 text-sm font-semibold text-cyan-100">
+          <div className="mb-4 inline-flex items-center gap-2 rounded-xl border border-cyan-400/20 bg-cyan-400/8 px-4 py-2 text-sm font-semibold text-cyan-700 dark:text-cyan-100">
             <RefreshCw className={`h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
             Refreshing {sport === "All" ? "markets" : `${sport} markets`}
           </div>
@@ -357,7 +357,7 @@ export function MarketsExplorer({
 
         <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
 
-        <div className="mt-5 rounded-2xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
+        <div className="traak-collection-panel mt-5 rounded-2xl border border-slate-800/90 bg-slate-900/58 p-4 shadow-xl shadow-black/25 backdrop-blur-xl">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
               <p className="text-[11px] uppercase tracking-[0.2em] text-[var(--muted)]">Trending Now</p>
@@ -371,7 +371,7 @@ export function MarketsExplorer({
               return (
                 <button
                   aria-pressed={active}
-                  className={`group flex min-h-[96px] items-center justify-between gap-3 rounded-xl border p-4 text-left transition duration-200 ${
+                  className={`traak-collection-card group flex min-h-[96px] items-center justify-between gap-3 rounded-xl border p-4 text-left transition duration-200 ${
                     active
                       ? "border-cyan-300/60 bg-cyan-300/10 shadow-[0_0_24px_rgba(34,211,238,0.10),inset_0_1px_0_rgba(255,255,255,0.04)]"
                       : "border-[var(--border)] bg-[var(--surface-3)] hover:-translate-y-0.5 hover:border-cyan-400/35 hover:bg-cyan-400/8 hover:shadow-lg hover:shadow-black/20"
