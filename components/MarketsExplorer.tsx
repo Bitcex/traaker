@@ -329,7 +329,7 @@ export function MarketsExplorer({
       <div className="mx-auto w-full max-w-[118rem] px-5 py-7 sm:px-7 lg:px-10">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h1 className="text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">Live Markets</h1>
+            <h1 className="traak-market-heading text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">Live Markets</h1>
             <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-emerald-600 dark:text-emerald-300">
               <span className="h-2.5 w-2.5 rounded-full bg-emerald-300 shadow-[0_0_14px_rgba(52,211,153,0.9)]" />
               Live

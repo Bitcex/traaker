@@ -13,7 +13,7 @@ export function WalletConnectButton() {
         if (!connected) {
           return (
             <button
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-cyan-300/35 bg-cyan-300/10 px-4 text-sm font-bold text-cyan-100 shadow-[0_0_22px_rgba(34,211,238,0.1)] transition hover:border-cyan-200/70 hover:bg-cyan-300/15"
+              className="traak-wallet-button inline-flex h-11 items-center gap-2 rounded-lg border border-cyan-300/35 bg-cyan-300/10 px-4 text-sm font-bold text-cyan-100 shadow-[0_0_22px_rgba(34,211,238,0.1)] transition hover:border-cyan-200/70 hover:bg-cyan-300/15"
               onClick={openConnectModal}
               type="button"
             >
@@ -25,7 +25,7 @@ export function WalletConnectButton() {
         if (chain.unsupported) {
           return (
             <button
-              className="inline-flex h-11 items-center gap-2 rounded-lg border border-amber-300/45 bg-amber-300/12 px-4 text-sm font-bold text-amber-100 transition hover:bg-amber-300/18"
+              className="traak-wallet-button inline-flex h-11 items-center gap-2 rounded-lg border border-amber-300/45 bg-amber-300/12 px-4 text-sm font-bold text-amber-100 transition hover:bg-amber-300/18"
               onClick={openChainModal}
               type="button"
             >
@@ -36,7 +36,7 @@ export function WalletConnectButton() {
 
         return (
           <button
-            className="inline-flex h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--foreground)] shadow-lg shadow-black/20 transition hover:border-cyan-300/40 hover:bg-[var(--surface-2)]"
+            className="traak-wallet-button inline-flex h-11 items-center gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 text-sm font-bold text-[var(--foreground)] shadow-lg shadow-black/20 transition hover:border-cyan-300/40 hover:bg-[var(--surface-2)]"
             onClick={openAccountModal}
             type="button"
           >
