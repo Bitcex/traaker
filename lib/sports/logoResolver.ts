@@ -704,7 +704,7 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   const candidate = normalizeTeamCandidate(input.outcomeName, input.marketTitle, input.category, input.sport);
   const teamName = candidate?.teamName ?? input.outcomeName.trim();
   const rawContext = `${input.category ?? ""} ${input.sport ?? ""} ${input.marketTitle ?? ""} ${input.outcomeName}`;
-  if (!candidate && entity.entityType !== "national_team") {
+  if (entity.entityType === "non_team") {
     const fallback = sportsLogoResolution({
       logoUrl: null,
       teamName: input.outcomeName.trim(),

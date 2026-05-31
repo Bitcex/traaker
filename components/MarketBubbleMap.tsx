@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarketTradePanel } from "@/components/MarketTradePanel";
 import { marketStore, type MarketValueState } from "@/app/store/marketStore";
-import { hasUsefulFavoredPrice, isUsefulFavoredPrice, sharedMarketOutcomeIconUrl, shouldUseOutcomeTeamLogos } from "@/lib/polymarket/marketDisplay";
+import { hasUsefulFavoredPrice, isUsefulFavoredPrice, resolveMarketOutcomeLogoUrl, sharedMarketOutcomeIconUrl, shouldUseOutcomeTeamLogos } from "@/lib/polymarket/marketDisplay";
 import { deriveMarketCategory } from "@/lib/markets/category";
 import { findTeamStyleMatch, marketBubbleRadius, momentumGlowColor } from "@/lib/sports/teamStyles";
 import type { TerminalMarket } from "@/lib/polymarket/types";
@@ -459,19 +459,13 @@ export function marketToBubbleNode(market: TerminalMarket, index = 0): MarketBub
   const outcomes = getMarketOutcomes(market);
   const style = marketColors(market, favored.name);
   const useTeamLogos = shouldUseOutcomeTeamLogos(market);
+  const marketContext = { title: market.title, image: market.image ?? undefined, sport: market.sport, league: market.league };
   const confidentLogo = (outcome?: MarketOutcomeOption) =>
-    useTeamLogos &&
-    outcome?.outcomeLogoUrl &&
-    outcome.isLogoOutcome !== false &&
-    outcome.entityType !== "fallback" &&
-    outcome.entityType !== "non_team" &&
-    (!outcome.logoConfidence || ["exact_normalized_match", "alias_match", "league_team_match", "provider_exact_name", "provider_alias_name", "provider_shortcode"].includes(outcome.logoConfidence))
-      ? outcome.outcomeLogoUrl
-      : undefined;
+    outcome ? resolveMarketOutcomeLogoUrl(outcome, outcome.teamDisplayName ?? outcome.name, marketContext) : undefined;
   const favoredOutcomeLogo = confidentLogo(outcomes.find((outcome) => outcome.name === favored.name));
   const primaryOutcomeLogo = favoredOutcomeLogo ?? confidentLogo(outcomes.find((outcome) => confidentLogo(outcome)));
   const sharedOutcomeLogo = sharedMarketOutcomeIconUrl(market);
-  const bubbleLogoUrl = useTeamLogos ? primaryOutcomeLogo : sharedOutcomeLogo;
+  const bubbleLogoUrl = useTeamLogos ? primaryOutcomeLogo ?? sharedOutcomeLogo : sharedOutcomeLogo;
   const val = Math.max(8, rankBubbleRadius(marketBubbleRadius(sizeBasis), index));
   const trendScore = trendScoreForMarket(market, volume);
   const position = seededPosition(market.id);
