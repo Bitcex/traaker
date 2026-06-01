@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, Loader2, RefreshCw, X } from "lucide-react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
+import { erc20Abi, type Address } from "viem";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,17 +14,12 @@ import { derivePortfolioPositions, type PortfolioPosition } from "@/src/lib/posi
 import { resolveTradingWalletContext, type TradingWalletContext } from "@/lib/polymarket/tradeSetup";
 import { withdrawFromTradingWallet } from "@/lib/polymarket/withdraw";
 import { resolveTransactionTimestamp, type Transaction, type WalletSyncStatus } from "@/src/lib/storage";
+import { getPolymarketExchangeConfig } from "@/lib/polymarket/relayer";
 
 type PortfolioStateResponse = {
   transactions: Transaction[];
   connectedWallets: string[];
   walletSyncStatuses: Record<string, WalletSyncStatus>;
-};
-
-type AccountResponse = {
-  ok?: boolean;
-  balance?: { balance?: string; allowances?: Record<string, string> } | null;
-  error?: string;
 };
 
 type LivePosition = {
@@ -65,13 +61,6 @@ const toShares = (value: number | null | undefined) => {
   if (!Number.isFinite(value ?? Number.NaN)) return "--";
   return (value as number).toLocaleString(undefined, { maximumFractionDigits: 4 });
 };
-
-function parseBalanceUsd(raw?: string | null) {
-  if (!raw) return null;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed)) return null;
-  return parsed / 1_000_000;
-}
 
 function formatDateTime(value: string | undefined) {
   if (!value) return "--";
@@ -289,13 +278,15 @@ export default function PortfolioClient() {
   const publicClient = usePublicClient({ chainId: 137 });
 
   const [portfolioState, setPortfolioState] = useState<PortfolioStateResponse | null>(null);
-  const [accountState, setAccountState] = useState<AccountResponse | null>(null);
   const [tradingContext, setTradingContext] = useState<TradingWalletContext | null>(null);
   const [livePositions, setLivePositions] = useState<LivePosition[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const [walletBalanceRaw, setWalletBalanceRaw] = useState<bigint | null>(null);
+  const [walletBalanceLoading, setWalletBalanceLoading] = useState(true);
+  const [walletBalanceError, setWalletBalanceError] = useState("");
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState("");
   const [withdrawDestination, setWithdrawDestination] = useState("");
@@ -306,6 +297,7 @@ export default function PortfolioClient() {
   const loadPortfolio = useCallback(
     async (mode: "initial" | "refresh" = "refresh") => {
       setError("");
+      setWalletBalanceError("");
       if (mode === "initial") setLoading(true);
       setRefreshing(true);
 
@@ -326,19 +318,7 @@ export default function PortfolioClient() {
         const [portfolioData, resolvedTradingContext] = await Promise.all([portfolioRequest, walletContextPromise]);
         setPortfolioState(portfolioData);
         setTradingContext(resolvedTradingContext);
-
-        const accountRequest =
-          resolvedTradingContext && isConnected && chainId === 137
-            ? fetch("/api/polymarket/account", { cache: "no-store" })
-                .then(async (response) => {
-                  const data = (await response.json().catch(() => null)) as AccountResponse | null;
-                  if (!response.ok || !data?.ok) {
-                    return null;
-                  }
-                  return data;
-                })
-                .catch(() => null)
-            : Promise.resolve(null);
+        setWalletBalanceLoading(Boolean(resolvedTradingContext));
 
         const positionsRequest =
           resolvedTradingContext?.tradingWalletAddress
@@ -355,15 +335,34 @@ export default function PortfolioClient() {
                 .catch(() => [])
             : Promise.resolve([]);
 
-        const [accountData, positionsData] = await Promise.all([accountRequest, positionsRequest]);
-        setAccountState(accountData);
+        const balanceRequest =
+          resolvedTradingContext && publicClient
+            ? publicClient
+                .readContract({
+                  address: getPolymarketExchangeConfig(false).collateral as Address,
+                  abi: erc20Abi,
+                  functionName: "balanceOf",
+                  args: [resolvedTradingContext.tradingWalletAddress as Address],
+                })
+                .then((value) => (typeof value === "bigint" ? value : null))
+                .catch((balanceError) => {
+                  setWalletBalanceError(balanceError instanceof Error ? balanceError.message : "Unable to load wallet balance.");
+                  return null;
+                })
+            : Promise.resolve(null);
+
+        const [positionsData, balanceData] = await Promise.all([positionsRequest, balanceRequest]);
         setLivePositions(positionsData);
+        setWalletBalanceRaw(balanceData);
         setLastUpdatedAt(Date.now());
       } catch (err) {
         setError(err instanceof Error ? err.message : "Unable to load portfolio data.");
+        setWalletBalanceError(err instanceof Error ? err.message : "Unable to load wallet balance.");
+        setWalletBalanceRaw(null);
       } finally {
         setLoading(false);
         setRefreshing(false);
+        setWalletBalanceLoading(false);
       }
     },
     [address, chainId, isConnected, publicClient, walletClient],
@@ -409,7 +408,14 @@ export default function PortfolioClient() {
       });
   }, [derivedPositions, livePositionMap]);
 
-  const walletBalance = parseBalanceUsd(accountState?.balance?.balance);
+  const walletBalance = walletBalanceRaw === null ? null : Number(walletBalanceRaw) / 1_000_000;
+  const walletBalanceDisplay = !isConnected
+    ? "Connect wallet"
+    : walletBalanceLoading
+      ? "Loading balance..."
+      : walletBalanceRaw === null
+        ? walletBalanceError || "Unavailable"
+        : toUsd(walletBalance);
   const addressSummary = useMemo(() => {
     const connected = address ? formatWalletAddress(address) : "Not connected";
     const trading = tradingContext?.tradingWalletAddress ? formatWalletAddress(tradingContext.tradingWalletAddress) : "Unavailable";
@@ -450,7 +456,7 @@ export default function PortfolioClient() {
       setWithdrawError("Trading wallet unavailable.");
       return;
     }
-    if (walletBalance === null) {
+    if (walletBalanceRaw === null) {
       setWithdrawError("Wallet balance is not loaded yet.");
       return;
     }
@@ -466,7 +472,7 @@ export default function PortfolioClient() {
         address,
         destinationAddress: withdrawDestination.trim(),
         amount: withdrawAmount.trim(),
-        availableBalanceRaw: accountState?.balance?.balance ?? null,
+        availableBalanceRaw: walletBalanceRaw?.toString() ?? null,
       });
       setWithdrawSuccess(`Withdrawal submitted to ${formatWalletAddress(result.destinationAddress)}.`);
       await loadPortfolio("refresh");
@@ -476,17 +482,16 @@ export default function PortfolioClient() {
       setWithdrawing(false);
     }
   }, [
-    accountState?.balance?.balance,
     address,
     chainId,
     isConnected,
     loadPortfolio,
     publicClient,
     tradingContext?.tradingWalletAddress,
-    walletBalance,
     walletClient,
     withdrawAmount,
     withdrawDestination,
+    walletBalanceRaw,
   ]);
 
   const canSubmitWithdraw = useMemo(() => {
@@ -514,8 +519,9 @@ export default function PortfolioClient() {
       publicClient &&
       address &&
       tradingContext?.tradingWalletAddress &&
-      walletBalance !== null &&
-      walletBalance > 0,
+      !walletBalanceLoading &&
+      walletBalanceRaw !== null &&
+      walletBalanceRaw > BigInt(0),
   );
 
   return (
@@ -592,16 +598,18 @@ export default function PortfolioClient() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Wallet balance</p>
-                      <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-50">{toUsd(walletBalance)}</p>
+                      <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-50">{walletBalanceDisplay}</p>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-slate-400">
                       <Clock3 className="h-4 w-4" />
-                    <span>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for refresh"}</span>
+                      <span>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for refresh"}</span>
+                    </div>
                   </div>
-                </div>
                   <p className="mt-3 text-sm leading-6 text-slate-400">
-                    {walletBalance === null
-                      ? "Connect and refresh to load the live wallet balance."
+                    {walletBalanceLoading
+                      ? "Loading the live wallet balance from the active trading wallet."
+                      : walletBalanceRaw === null
+                        ? walletBalanceError || "Connect and refresh to load the live wallet balance."
                       : "This is the live USDC balance available for withdrawals and trading."}
                   </p>
                 </div>
