@@ -12,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { OrderType, placeMarketOrder, Side, isDepositWalletRequiredError } from "@/lib/polymarket/orders";
+import { resolveMarketOutcomeLogoUrl } from "@/lib/polymarket/marketDisplay";
 import { sharedMarketOutcomeIconUrl } from "@/lib/polymarket/marketDisplay";
 import { formatWalletAddress } from "@/src/lib/display";
 import { derivePortfolioPositions, type PortfolioPosition } from "@/src/lib/positions";
@@ -49,6 +50,28 @@ type PositionsResponse = {
   ok?: boolean;
   positions?: LivePosition[];
   error?: string;
+};
+
+type MarketArtworkOption = {
+  name: string;
+  teamDisplayName?: string | null;
+  polymarketParticipantName?: string | null;
+  polymarketTeamName?: string | null;
+  outcomeLogoUrl?: string | null;
+  polymarketParticipantLogoUrl?: string | null;
+  polymarketTeamLogoUrl?: string | null;
+  participantType?: string | null;
+  entityType?: string | null;
+};
+
+type MarketArtworkRecord = {
+  id?: string;
+  title?: string;
+  image?: string | null;
+  sport?: string | null;
+  league?: string | null;
+  outcomes?: { yes?: string; no?: string } | Array<{ name?: string }>;
+  outcomeOptions?: MarketArtworkOption[];
 };
 
 type EnrichedOpenPosition = PortfolioPosition & {
@@ -136,6 +159,64 @@ const portfolioDebugLog = (...args: unknown[]) => {
   console.info("[portfolio]", ...args);
 };
 
+const positionArtworkKey = (marketId: string | null | undefined, outcome: string | null | undefined) =>
+  `${(marketId ?? "").trim().toLowerCase()}|${(outcome ?? "").trim().toLowerCase()}`;
+
+const normalizePositionOutcome = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
+
+function resolvePositionArtworkFromMarket(position: { marketId: string | null; marketTitle: string; outcome: string; thumbnailUrl?: string | null }, market: MarketArtworkRecord | null) {
+  const feedArtwork = position.thumbnailUrl?.trim() || null;
+  const selectedOutcome = market?.outcomeOptions?.find((outcome) => {
+    const optionName = normalizePositionOutcome(outcome.name);
+    const optionTeamName = normalizePositionOutcome(outcome.teamDisplayName ?? outcome.polymarketParticipantName ?? outcome.polymarketTeamName);
+    const positionOutcome = normalizePositionOutcome(position.outcome);
+    return optionName === positionOutcome || optionTeamName === positionOutcome;
+  });
+
+  const resolvedArtwork = market
+    ? resolveMarketOutcomeLogoUrl(
+        selectedOutcome as never,
+        position.outcome,
+        {
+          title: market.title ?? position.marketTitle,
+          image: market.image ?? undefined,
+          sport: market.sport ?? undefined,
+          league: market.league ?? undefined,
+        },
+        selectedOutcome?.polymarketParticipantLogoUrl ?? selectedOutcome?.polymarketTeamLogoUrl ?? null,
+        null,
+      )
+    : null;
+
+  const sharedArtwork = sharedMarketOutcomeIconUrl({
+    title: market?.title ?? position.marketTitle,
+    image: market?.image ?? undefined,
+    sport: market?.sport ?? undefined,
+    league: market?.league ?? undefined,
+  });
+
+  const selectedArtwork = resolvedArtwork ?? sharedArtwork ?? feedArtwork;
+
+  portfolioDebugLog("position artwork resolution", {
+    marketId: position.marketId,
+    title: position.marketTitle,
+    outcome: position.outcome,
+    feedArtworkFields: {
+      thumbnailUrl: position.thumbnailUrl ?? null,
+      image: (market as { image?: string | null } | null)?.image ?? null,
+      logoUrl: null,
+      outcomeImage: selectedOutcome?.outcomeLogoUrl ?? null,
+      participantLogoUrl: selectedOutcome?.polymarketParticipantLogoUrl ?? null,
+      teamLogoUrl: selectedOutcome?.polymarketTeamLogoUrl ?? null,
+    },
+    selectedArtwork,
+    feedMissingArtwork: !feedArtwork,
+    ignoredExistingImageField: Boolean(feedArtwork && selectedArtwork !== feedArtwork),
+  });
+
+  return selectedArtwork ?? null;
+}
+
 function formatDateTime(value: string | undefined) {
   if (!value) return "--";
   const normalized = resolveTransactionTimestamp({ source: "manual", timestamp: value, rawSource: undefined });
@@ -182,10 +263,6 @@ function PositionAvatar({ title, src }: { title: string; src?: string | null }) 
       ) : null}
     </div>
   );
-}
-
-function buildPositionThumbnail(position: { marketTitle: string; category?: string; thumbnailUrl?: string | null }) {
-  return position.thumbnailUrl?.trim() || sharedMarketOutcomeIconUrl({ title: position.marketTitle, sport: position.category, league: position.category }) || null;
 }
 
 function WalletField({ label, value }: { label: string; value: string }) {
@@ -536,6 +613,7 @@ export default function PortfolioClient() {
   const [portfolioState, setPortfolioState] = useState<PortfolioStateResponse | null>(null);
   const [tradingContext, setTradingContext] = useState<TradingWalletContext | null>(null);
   const [livePositions, setLivePositions] = useState<LivePosition[]>([]);
+  const [positionArtworkByKey, setPositionArtworkByKey] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -605,6 +683,28 @@ export default function PortfolioClient() {
 
         const positionsData = await positionsRequest;
         setLivePositions(positionsData);
+        portfolioDebugLog(
+          "positions feed artwork fields",
+          positionsData.map((position) => {
+            const record = position as Record<string, unknown>;
+            const artworkFields = {
+              thumbnailUrl: typeof record.thumbnailUrl === "string" ? record.thumbnailUrl : null,
+              image: typeof record.image === "string" ? record.image : null,
+              imageUrl: typeof record.imageUrl === "string" ? record.imageUrl : null,
+              logoUrl: typeof record.logoUrl === "string" ? record.logoUrl : null,
+              outcomeLogoUrl: typeof record.outcomeLogoUrl === "string" ? record.outcomeLogoUrl : null,
+              marketImage: typeof record.marketImage === "string" ? record.marketImage : null,
+              icon: typeof record.icon === "string" ? record.icon : null,
+            };
+            return {
+              marketId: position.conditionId || position.tokenId,
+              title: position.title,
+              outcome: position.outcome,
+              artworkFields,
+              missingArtwork: !Object.values(artworkFields).some(Boolean),
+            };
+          }),
+        );
         portfolioDebugLog("positions response", {
           positionsQueryAddress: resolvedTradingContext?.tradingWalletAddress ?? null,
           positionsCount: positionsData.length,
@@ -737,6 +837,72 @@ export default function PortfolioClient() {
     return map;
   }, [livePositions]);
 
+  useEffect(() => {
+    let active = true;
+    const controller = new AbortController();
+    const positionsForArtwork = [
+      ...livePositions.map((position) => ({
+        marketId: position.conditionId || position.tokenId,
+        marketTitle: position.title,
+        outcome: position.outcome,
+      })),
+      ...derivedPositions.map((position) => ({
+        marketId: position.marketId,
+        marketTitle: position.marketTitle,
+        outcome: position.outcome,
+      })),
+    ].filter((position) => Boolean(position.marketId));
+    const uniqueKeys = new Map<string, { marketId: string; marketTitle: string; outcome: string }>();
+
+    for (const position of positionsForArtwork) {
+      const marketId = position.marketId ?? null;
+      if (!marketId) continue;
+      const key = positionArtworkKey(marketId, position.outcome);
+      if (uniqueKeys.has(key)) continue;
+      uniqueKeys.set(key, {
+        marketId,
+        marketTitle: position.marketTitle,
+        outcome: position.outcome,
+      });
+    }
+
+    if (uniqueKeys.size === 0) {
+      setPositionArtworkByKey({});
+      return () => {
+        active = false;
+        controller.abort();
+      };
+    }
+
+    void Promise.all(
+      [...uniqueKeys.entries()].map(async ([key, value]) => {
+        try {
+          const response = await fetch(`/api/polymarket/markets/${encodeURIComponent(value.marketId)}`, {
+            cache: "no-store",
+            signal: controller.signal,
+          });
+          const payload = (await response.json().catch(() => null)) as { market?: MarketArtworkRecord; error?: string } | null;
+          const market = response.ok ? (payload?.market ?? null) : null;
+          const artwork = resolvePositionArtworkFromMarket(
+            { marketId: value.marketId, marketTitle: value.marketTitle, outcome: value.outcome, thumbnailUrl: null },
+            market,
+          );
+          return [key, artwork] as const;
+        } catch {
+          return [key, null] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setPositionArtworkByKey(Object.fromEntries(entries));
+    });
+
+    return () => {
+      active = false;
+      controller.abort();
+    };
+  }, [derivedPositions, livePositions]);
+
   const liveOpenPositions = useMemo<EnrichedOpenPosition[]>(() => {
     const updatedAt = lastUpdatedAt ? new Date(lastUpdatedAt).toISOString() : new Date().toISOString();
     return livePositions
@@ -748,13 +914,10 @@ export default function PortfolioClient() {
           value.currentValue ?? (Number.isFinite(quote ?? Number.NaN) ? shares * (quote as number) : null);
         const unrealizedPnl =
           Number.isFinite(currentValue ?? Number.NaN) ? (currentValue as number) - shares * value.price : null;
+        const artworkKey = positionArtworkKey(value.marketId, value.outcome);
         return {
           ...value,
-          thumbnailUrl: buildPositionThumbnail({
-            marketTitle: value.marketTitle,
-            category: value.category,
-            thumbnailUrl: null,
-          }),
+          thumbnailUrl: positionArtworkByKey[artworkKey] ?? null,
           currentValue,
           unrealizedPnl,
         };
@@ -764,7 +927,7 @@ export default function PortfolioClient() {
         const rightTime = new Date(resolveTransactionTimestamp(right) ?? right.timestamp).getTime();
         return rightTime - leftTime;
       });
-  }, [lastUpdatedAt, livePositions]);
+  }, [lastUpdatedAt, livePositions, positionArtworkByKey]);
 
   const openPositions = useMemo<EnrichedOpenPosition[]>(() => {
     const derivedOpenPositions = derivedPositions
@@ -776,13 +939,10 @@ export default function PortfolioClient() {
         const quote = live?.bestBid ?? live?.curPrice ?? null;
         const currentValue = live?.currentValue ?? (Number.isFinite(quote ?? Number.NaN) ? position.shares * (quote as number) : null);
         const unrealizedPnl = Number.isFinite(currentValue ?? Number.NaN) ? (currentValue as number) - position.shares * position.price : null;
+        const artworkKey = positionArtworkKey(position.marketId, position.outcome);
         return {
           ...position,
-          thumbnailUrl: buildPositionThumbnail({
-            marketTitle: position.marketTitle,
-            category: position.category,
-            thumbnailUrl: null,
-          }),
+          thumbnailUrl: positionArtworkByKey[artworkKey] ?? null,
           liveQuote: quote,
           currentValue,
           unrealizedPnl,
@@ -798,7 +958,7 @@ export default function PortfolioClient() {
         return rightTime - leftTime;
       });
     return liveOpenPositions.length > 0 ? liveOpenPositions : derivedOpenPositions;
-  }, [derivedPositions, liveOpenPositions, livePositionMap]);
+  }, [derivedPositions, liveOpenPositions, livePositionMap, positionArtworkByKey]);
 
   const walletBalance = walletBalanceRaw === null ? null : Number(walletBalanceRaw) / 1_000_000;
   const walletBalanceDisplay = !isConnected
