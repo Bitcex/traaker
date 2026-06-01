@@ -13,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { OrderType, placeMarketOrder, Side, isDepositWalletRequiredError } from "@/lib/polymarket/orders";
 import { resolveMarketOutcomeLogoUrl } from "@/lib/polymarket/marketDisplay";
-import { sharedMarketOutcomeIconUrl } from "@/lib/polymarket/marketDisplay";
 import { formatWalletAddress } from "@/src/lib/display";
 import { derivePortfolioPositions, type PortfolioPosition } from "@/src/lib/positions";
 import {
@@ -165,7 +164,6 @@ const positionArtworkKey = (marketId: string | null | undefined, outcome: string
 const normalizePositionOutcome = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
 
 function resolvePositionArtworkFromMarket(position: { marketId: string | null; marketTitle: string; outcome: string; thumbnailUrl?: string | null }, market: MarketArtworkRecord | null) {
-  const feedArtwork = position.thumbnailUrl?.trim() || null;
   const selectedOutcome = market?.outcomeOptions?.find((outcome) => {
     const optionName = normalizePositionOutcome(outcome.name);
     const optionTeamName = normalizePositionOutcome(outcome.teamDisplayName ?? outcome.polymarketParticipantName ?? outcome.polymarketTeamName);
@@ -173,7 +171,7 @@ function resolvePositionArtworkFromMarket(position: { marketId: string | null; m
     return optionName === positionOutcome || optionTeamName === positionOutcome;
   });
 
-  const resolvedArtwork = market
+  const selectedArtwork = market
     ? resolveMarketOutcomeLogoUrl(
         selectedOutcome as never,
         position.outcome,
@@ -188,19 +186,11 @@ function resolvePositionArtworkFromMarket(position: { marketId: string | null; m
       )
     : null;
 
-  const sharedArtwork = sharedMarketOutcomeIconUrl({
-    title: market?.title ?? position.marketTitle,
-    image: market?.image ?? undefined,
-    sport: market?.sport ?? undefined,
-    league: market?.league ?? undefined,
-  });
-
-  const selectedArtwork = resolvedArtwork ?? sharedArtwork ?? feedArtwork;
-
   portfolioDebugLog("position artwork resolution", {
     marketId: position.marketId,
     title: position.marketTitle,
     outcome: position.outcome,
+    marketFound: Boolean(market),
     feedArtworkFields: {
       thumbnailUrl: position.thumbnailUrl ?? null,
       image: (market as { image?: string | null } | null)?.image ?? null,
@@ -210,8 +200,7 @@ function resolvePositionArtworkFromMarket(position: { marketId: string | null; m
       teamLogoUrl: selectedOutcome?.polymarketTeamLogoUrl ?? null,
     },
     selectedArtwork,
-    feedMissingArtwork: !feedArtwork,
-    ignoredExistingImageField: Boolean(feedArtwork && selectedArtwork !== feedArtwork),
+    initialsFallbackReason: selectedArtwork ? null : market ? "market artwork path returned no image" : "market object missing",
   });
 
   return selectedArtwork ?? null;
@@ -239,7 +228,7 @@ function fallbackPositionInitials(title: string) {
   return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
 }
 
-function PositionAvatar({ title, src }: { title: string; src?: string | null }) {
+function PositionAvatar({ title, src, loading }: { title: string; src?: string | null; loading?: boolean }) {
   const [failed, setFailed] = useState(false);
   const fallback = fallbackPositionInitials(title);
   const resolvedSrc = src?.trim() || "";
@@ -247,7 +236,9 @@ function PositionAvatar({ title, src }: { title: string; src?: string | null }) 
 
   return (
     <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/8 bg-slate-900/70 shadow-inner shadow-black/30">
-      {displaySrc ? (
+      {loading ? (
+        <div className="absolute inset-0 animate-pulse bg-white/5" />
+      ) : displaySrc ? (
         <Image
           alt=""
           className="h-full w-full object-cover"
@@ -258,7 +249,7 @@ function PositionAvatar({ title, src }: { title: string; src?: string | null }) 
           width={48}
         />
       ) : null}
-      {!displaySrc ? (
+      {!loading && !displaySrc ? (
         <div className="absolute inset-0 grid place-items-center text-sm font-semibold text-slate-100">{fallback}</div>
       ) : null}
     </div>
@@ -278,9 +269,11 @@ function WalletField({ label, value }: { label: string; value: string }) {
 
 function PositionCard({
   position,
+  loadingArtwork = false,
   onSell,
 }: {
   position: EnrichedOpenPosition;
+  loadingArtwork?: boolean;
   onSell: (position: EnrichedOpenPosition) => void;
 }) {
   const quote = position.liveQuote ?? null;
@@ -294,7 +287,7 @@ function PositionCard({
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
           <div className="flex min-w-0 items-start gap-3">
-            <PositionAvatar title={position.marketTitle} src={position.thumbnailUrl} />
+            <PositionAvatar title={position.marketTitle} loading={loadingArtwork} src={position.thumbnailUrl} />
             <div className="min-w-0">
               <p className="text-sm font-semibold leading-tight text-slate-50">{position.marketTitle}</p>
               <p className="mt-1 min-w-0 truncate text-sm text-slate-400">{position.outcome}</p>
@@ -488,6 +481,7 @@ function WithdrawModal({
 type SellModalProps = {
   open: boolean;
   position: EnrichedOpenPosition | null;
+  loadingArtwork?: boolean;
   amount: string;
   estimatedProceeds: number | null;
   selectedBid: number | null;
@@ -502,6 +496,7 @@ type SellModalProps = {
 function SellModal({
   open,
   position,
+  loadingArtwork = false,
   amount,
   estimatedProceeds,
   selectedBid,
@@ -520,7 +515,7 @@ function SellModal({
         <div className="w-full max-w-md rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-[0_30px_120px_rgba(2,6,23,0.72)]">
           <div className="flex items-start justify-between gap-4 border-b border-white/8 px-5 py-4 sm:px-6">
             <div className="flex min-w-0 items-start gap-3">
-              <PositionAvatar title={position.marketTitle} src={position.thumbnailUrl} />
+              <PositionAvatar title={position.marketTitle} loading={loadingArtwork} src={position.thumbnailUrl} />
               <div className="min-w-0">
                 <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Position trade</p>
                 <h2 className="mt-1 text-lg font-semibold text-slate-50">Sell shares</h2>
@@ -614,6 +609,7 @@ export default function PortfolioClient() {
   const [tradingContext, setTradingContext] = useState<TradingWalletContext | null>(null);
   const [livePositions, setLivePositions] = useState<LivePosition[]>([]);
   const [positionArtworkByKey, setPositionArtworkByKey] = useState<Record<string, string | null>>({});
+  const [positionArtworkLoadingByKey, setPositionArtworkLoadingByKey] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
@@ -868,11 +864,14 @@ export default function PortfolioClient() {
 
     if (uniqueKeys.size === 0) {
       setPositionArtworkByKey({});
+      setPositionArtworkLoadingByKey({});
       return () => {
         active = false;
         controller.abort();
       };
     }
+
+    setPositionArtworkLoadingByKey(Object.fromEntries([...uniqueKeys.keys()].map((key) => [key, true])));
 
     void Promise.all(
       [...uniqueKeys.entries()].map(async ([key, value]) => {
@@ -887,14 +886,27 @@ export default function PortfolioClient() {
             { marketId: value.marketId, marketTitle: value.marketTitle, outcome: value.outcome, thumbnailUrl: null },
             market,
           );
+          portfolioDebugLog("position market lookup", {
+            marketId: value.marketId,
+            marketFound: Boolean(market),
+            chosenImageUrl: artwork,
+            initialsFallbackUsed: !artwork,
+          });
           return [key, artwork] as const;
         } catch {
+          portfolioDebugLog("position market lookup", {
+            marketId: value.marketId,
+            marketFound: false,
+            chosenImageUrl: null,
+            initialsFallbackUsed: true,
+          });
           return [key, null] as const;
         }
       }),
     ).then((entries) => {
       if (!active) return;
       setPositionArtworkByKey(Object.fromEntries(entries));
+      setPositionArtworkLoadingByKey(Object.fromEntries([...uniqueKeys.keys()].map((key) => [key, false])));
     });
 
     return () => {
@@ -1246,6 +1258,7 @@ export default function PortfolioClient() {
                   {openPositions.map((position) => (
                     <PositionCard
                       key={position.positionKey}
+                      loadingArtwork={positionArtworkLoadingByKey[positionArtworkKey(position.marketId, position.outcome)] ?? false}
                       onSell={(selected) => setSellState({ position: selected, amount: String(selected.shares) })}
                       position={position}
                     />
@@ -1339,6 +1352,7 @@ export default function PortfolioClient() {
           onAmountChange={(value) => setSellState((current) => (current ? { ...current, amount: value } : current))}
           onClose={closeSellModal}
           onSubmit={() => void submitSell()}
+          loadingArtwork={sellState ? positionArtworkLoadingByKey[positionArtworkKey(sellState.position.marketId, sellState.position.outcome)] ?? false : false}
           open={Boolean(sellState)}
           position={sellState?.position ?? null}
           selectedBid={selectedSellBid}
