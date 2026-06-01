@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { AlertCircle, CheckCircle2, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { Button } from "@/components/ui/button";
@@ -33,6 +33,7 @@ type QuoteStatus = "healthy" | "refreshing" | "stale";
 type TradeSide = "Buy" | "Sell";
 type TradePanelTab = "trade" | "stats";
 type TradeToast = { tone: "success" | "error" | "info"; message: string };
+type TradeSuccessPulse = { id: number; message: string };
 type RuntimeConfig = {
   realTradingEnabled: boolean;
   builderReady: boolean;
@@ -140,6 +141,21 @@ function useOptionalPublicClient() {
   }
 }
 
+function usePrefersReducedMotion() {
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const update = () => setPrefersReducedMotion(media.matches);
+    update();
+    media.addEventListener?.("change", update);
+    return () => media.removeEventListener?.("change", update);
+  }, []);
+
+  return prefersReducedMotion;
+}
+
 export function MarketTradePanel({
   market,
   onUpdatePrices,
@@ -170,6 +186,7 @@ export function MarketTradePanel({
   const [submittingSide, setSubmittingSide] = useState<TradeSide | null>(null);
   const [tradeProgress, setTradeProgress] = useState<TradeProgress>("idle");
   const [toast, setToast] = useState<TradeToast | null>(null);
+  const [successPulse, setSuccessPulse] = useState<TradeSuccessPulse | null>(null);
   const [orderId, setOrderId] = useState("");
   const [quoteUpdatedAt, setQuoteUpdatedAt] = useState<number | null>(null);
   const [quoteNow, setQuoteNow] = useState(() => Date.now());
@@ -179,12 +196,30 @@ export function MarketTradePanel({
   const [enrichment, setEnrichment] = useState<EnrichedMarket | null>(null);
   const [enrichmentError, setEnrichmentError] = useState("");
   const [activeTab, setActiveTab] = useState<TradePanelTab>("trade");
+  const prefersReducedMotion = usePrefersReducedMotion();
   const refreshInFlightRef = useRef(false);
   const mountedRef = useRef(true);
   const activeMarketIdRef = useRef(market.id);
   const refreshTokenRef = useRef(0);
   const lastMarketIdRef = useRef(market.id);
   const bodyRef = useRef<HTMLDivElement>(null);
+
+  const showSuccessFeedback = useCallback((message: string) => {
+    setToast({ tone: "success", message });
+    setSuccessPulse({ id: Date.now(), message });
+  }, []);
+
+  useEffect(() => {
+    if (!toast || toast.tone !== "success") return undefined;
+    const timeout = window.setTimeout(() => setToast((current) => (current?.tone === "success" ? null : current)), 2800);
+    return () => window.clearTimeout(timeout);
+  }, [toast]);
+
+  useEffect(() => {
+    if (!successPulse) return undefined;
+    const timeout = window.setTimeout(() => setSuccessPulse(null), prefersReducedMotion ? 900 : 1600);
+    return () => window.clearTimeout(timeout);
+  }, [prefersReducedMotion, successPulse]);
 
   const selectedOutcome = selectedOutcomeFromMarket(displayMarket, selectedOutcomeName);
   const category = displayMarket.category && displayMarket.category !== "Market" ? displayMarket.category : "";
@@ -205,7 +240,7 @@ export function MarketTradePanel({
   const numericShares = Number(shares);
   const safeShares = Number.isFinite(numericShares) ? Math.max(0, numericShares) : 0;
   const secondsSinceUpdate = quoteUpdatedAt !== null ? Math.max(0, Math.floor((quoteNow - quoteUpdatedAt) / 1000)) : null;
-  const quoteLabel = quoteStatus === "refreshing" ? "Refreshing quote" : formatSeconds(secondsSinceUpdate);
+  const quoteLabel = formatSeconds(secondsSinceUpdate);
   const polymarketUrl = displayMarket.polymarketUrl ?? displayMarket.marketUrl;
   const statsEnrichment = enrichment;
   const enrichmentParticipantsByName = useMemo(() => {
@@ -552,7 +587,7 @@ export function MarketTradePanel({
         }
 
         if (!runtimeConfig.realTradingEnabled) {
-          setToast({ tone: "success", message: `${side} ${refreshedOutcome.name} validated at ${formatCents(finalPrice as number)}. Real order submission is disabled.` });
+          showSuccessFeedback(`${side} ${refreshedOutcome.name} validated at ${formatCents(finalPrice as number)}. Real order submission is disabled.`);
           return;
         }
 
@@ -575,7 +610,7 @@ export function MarketTradePanel({
         });
         const nextOrderId = extractOrderId(response);
         setOrderId(nextOrderId);
-        setToast({ tone: "success", message: nextOrderId ? `Order submitted: ${nextOrderId}` : `${side} order submitted.` });
+        showSuccessFeedback(nextOrderId ? `Trade placed successfully. Order submitted: ${nextOrderId}` : `Trade placed successfully. ${side} order submitted.`);
       };
 
       setSubmittingSide(side);
@@ -607,7 +642,7 @@ export function MarketTradePanel({
         setTradeProgress("idle");
       }
     },
-    [chainId, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, runtimeConfig.realTradingEnabled, safeShares, selectedOutcomeName, slippageBps, walletClient],
+    [chainId, displayMarket, isConnected, onUpdatePrices, publicClient, quoteIsStale, refreshQuoteWithRetry, runtimeConfig.realTradingEnabled, safeShares, selectedOutcomeName, showSuccessFeedback, slippageBps, walletClient],
   );
 
   const actionButtons = useMemo(
@@ -668,7 +703,8 @@ export function MarketTradePanel({
       <MarketPanelHeader
         category={category}
         categoryIcon={categoryMark ? <span className="text-sm leading-none">{categoryMark}</span> : undefined}
-        status={quoteStatus === "refreshing" ? "Refreshing" : "Live"}
+        loading={quoteStatus === "refreshing"}
+        status={quoteStatus === "refreshing" ? "Updating" : "Live"}
         timestamp={quoteLabel}
         title={displayTitle}
         subtitle={subtitle}
@@ -968,22 +1004,55 @@ export function MarketTradePanel({
       <div className="traak-trade-panel-footer border-t border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 pb-[calc(0.75rem+env(safe-area-inset-bottom))] shadow-[0_-18px_38px_rgba(0,0,0,0.4)] sm:py-3">
         <div className="grid grid-cols-2 gap-3">{actionButtons}</div>
         {tradeProgress !== "idle" ? (
-          <p className="mt-2 text-[11px] uppercase tracking-[0.18em] text-cyan-600 dark:text-cyan-200">
-            {tradeProgress === "checking-wallet"
-              ? "Checking wallet"
-              : tradeProgress === "initializing-trading-wallet"
-                ? "Initializing trading wallet"
-                : tradeProgress === "checking-balance"
-                  ? "Checking balance"
-                  : tradeProgress === "approving-trading"
-                    ? "Approving trading"
-                    : tradeProgress === "refreshing-quote"
-                      ? "Refreshing quote"
-                      : "Submitting order"}
-          </p>
+          <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-cyan-400/15 bg-cyan-400/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-100">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            <span>
+              {tradeProgress === "checking-wallet"
+                ? "Checking wallet"
+                : tradeProgress === "initializing-trading-wallet"
+                  ? "Initializing wallet"
+                  : tradeProgress === "checking-balance"
+                    ? "Checking balance"
+                    : tradeProgress === "approving-trading"
+                      ? "Approving"
+                      : tradeProgress === "refreshing-quote"
+                        ? "Updating quote"
+                        : "Submitting order"}
+            </span>
+          </div>
         ) : null}
         {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-600 dark:text-amber-200">{tradeDisabledReason}</p> : null}
       </div>
+
+      {successPulse ? (
+        <div className="pointer-events-none fixed bottom-20 left-1/2 z-[60] w-[min(92vw,24rem)] -translate-x-1/2">
+          <style>{`
+            @keyframes trade-success-pop {
+              0% { transform: translateY(10px) scale(0.96); opacity: 0; }
+              18% { transform: translateY(0) scale(1.01); opacity: 1; }
+              100% { transform: translateY(0) scale(1); opacity: 1; }
+            }
+          `}</style>
+          <div
+            className={`relative overflow-hidden rounded-2xl border border-emerald-400/25 bg-emerald-950/95 px-4 py-3 text-sm text-emerald-100 shadow-[0_20px_70px_rgba(16,185,129,0.22)] ${
+              prefersReducedMotion ? "" : ""
+            }`}
+            style={prefersReducedMotion ? undefined : ({ animation: "trade-success-pop 1.6s ease-out 1" } as CSSProperties)}
+          >
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(110,231,183,0.22),transparent_48%)]" />
+            <div className="relative flex items-start gap-3">
+              <span className="relative mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-200">
+                <CheckCircle2 className="h-5 w-5" />
+                {prefersReducedMotion ? null : <span className="absolute inset-0 rounded-full border border-emerald-300/30 motion-safe:animate-ping" />}
+              </span>
+              <div className="min-w-0">
+                <p className="font-semibold text-emerald-50">Trade placed successfully</p>
+                <p className="mt-0.5 text-sm text-emerald-100/80">{successPulse.message}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {toast ? (
         <div

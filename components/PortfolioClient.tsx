@@ -430,19 +430,22 @@ function SellModal({
             ) : null}
 
             {tradeProgress !== "idle" ? (
-              <p className="text-xs uppercase tracking-[0.18em] text-cyan-200">
-                {tradeProgress === "checking-wallet"
-                  ? "Checking wallet"
-                  : tradeProgress === "initializing-trading-wallet"
-                    ? "Initializing trading wallet"
-                    : tradeProgress === "checking-balance"
-                      ? "Checking balance"
-                      : tradeProgress === "approving-trading"
-                        ? "Approving trading"
-                        : tradeProgress === "refreshing-quote"
-                          ? "Refreshing quote"
-                          : "Submitting order"}
-              </p>
+              <div className="inline-flex items-center gap-2 rounded-full border border-cyan-400/15 bg-cyan-400/8 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-cyan-700 dark:text-cyan-100">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                <span>
+                  {tradeProgress === "checking-wallet"
+                    ? "Checking wallet"
+                    : tradeProgress === "initializing-trading-wallet"
+                      ? "Initializing wallet"
+                      : tradeProgress === "checking-balance"
+                        ? "Checking balance"
+                        : tradeProgress === "approving-trading"
+                          ? "Approving"
+                          : tradeProgress === "refreshing-quote"
+                            ? "Updating quote"
+                            : "Submitting order"}
+                </span>
+              </div>
             ) : null}
 
             <label className="block text-sm">
@@ -742,7 +745,7 @@ export default function PortfolioClient() {
   const walletBalanceDisplay = !isConnected
     ? "Connect wallet"
     : walletBalanceLoading
-      ? "Loading balance..."
+      ? "Balance loading"
       : walletBalanceRaw === null
         ? walletBalanceError || "Unavailable"
         : toUsd(walletBalance);
@@ -992,9 +995,16 @@ export default function PortfolioClient() {
         ) : null}
 
         {notice ? (
-          <div className="mb-4 flex gap-3 rounded-2xl border border-cyan-400/25 bg-cyan-950/25 p-4 text-sm text-cyan-100">
-            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{notice}</span>
+          <div className="mb-4 overflow-hidden rounded-2xl border border-emerald-400/20 bg-emerald-500/10 p-4 text-sm text-emerald-50 shadow-[0_18px_60px_rgba(16,185,129,0.14)]">
+            <div className="flex items-start gap-3">
+              <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-400/15 text-emerald-200">
+                <CheckCircle2 className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="font-medium text-emerald-50">{notice}</p>
+                <p className="mt-1 text-xs text-emerald-100/75">You can continue trading while the portfolio refreshes in the background.</p>
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -1006,9 +1016,11 @@ export default function PortfolioClient() {
             </CardHeader>
             <CardContent className="p-5">
               {loading && transactions.length === 0 ? (
-                <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-slate-950/50 p-5 text-sm text-slate-300">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading portfolio
+                <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-slate-950/50 px-4 py-3 text-sm text-slate-300">
+                  <Loader2 className="h-4 w-4 animate-spin text-cyan-300" />
+                  <span className="inline-flex items-center gap-2 rounded-full border border-cyan-400/15 bg-cyan-400/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-200">
+                    Loading positions
+                  </span>
                 </div>
               ) : openPositions.length > 0 ? (
                 <div className="space-y-3">
@@ -1055,16 +1067,29 @@ export default function PortfolioClient() {
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Wallet balance</p>
-                      <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-50">{walletBalanceDisplay}</p>
+                      {walletBalanceLoading ? (
+                        <div className="mt-2 h-9 w-28 rounded-2xl border border-white/8 bg-white/[0.05]">
+                          <div className="h-full w-full animate-pulse rounded-2xl bg-gradient-to-r from-transparent via-white/10 to-transparent" />
+                        </div>
+                      ) : (
+                        <p className="mt-2 text-3xl font-semibold tracking-tight text-slate-50">{walletBalanceDisplay}</p>
+                      )}
                     </div>
-                    <div className="flex items-center gap-2 text-sm text-slate-400">
-                      <Clock3 className="h-4 w-4" />
-                      <span>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Waiting for refresh"}</span>
-                    </div>
+                    {walletBalanceLoading ? (
+                      <Badge tone="slate" className="inline-flex items-center gap-2 uppercase tracking-[0.18em]">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Syncing
+                      </Badge>
+                    ) : (
+                      <div className="flex items-center gap-2 text-sm text-slate-400">
+                        <Clock3 className="h-4 w-4" />
+                        <span>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Awaiting refresh"}</span>
+                      </div>
+                    )}
                   </div>
                   <p className="mt-3 text-sm leading-6 text-slate-400">
                     {walletBalanceLoading
-                      ? "Loading the live wallet balance from the active trading wallet."
+                      ? "Fetching the live trading wallet balance."
                       : walletBalanceRaw === null
                         ? walletBalanceError || "Connect and refresh to load the live wallet balance."
                       : "This is the live USDC balance available for withdrawals and trading."}

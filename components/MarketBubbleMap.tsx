@@ -2124,8 +2124,8 @@ export function MarketBubbleMap({
 
       {isRefreshing ? (
         <div className="traak-market-board-badge absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-cyan-400/25 bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-cyan-600 shadow-xl shadow-black/30 backdrop-blur-md dark:text-cyan-100">
-          <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.9)]" />
-          Refreshing markets
+          <div className="h-3 w-3 rounded-full border border-cyan-300/35 border-t-cyan-300 motion-safe:animate-spin" />
+          <span>Updating markets</span>
         </div>
       ) : null}
 

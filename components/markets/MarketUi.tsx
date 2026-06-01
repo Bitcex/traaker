@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Image from "next/image";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Loader2 } from "lucide-react";
 
 type TagPillTone = "cyan" | "emerald" | "slate";
 
@@ -10,10 +10,12 @@ export function TagPill({
   children,
   icon,
   tone = "slate",
+  animated = false,
 }: {
   children: ReactNode;
   icon?: ReactNode;
   tone?: TagPillTone;
+  animated?: boolean;
 }) {
   const toneClass =
     tone === "cyan"
@@ -24,7 +26,7 @@ export function TagPill({
 
   return (
     <span data-tone={tone} className={`traak-market-chip inline-flex min-w-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${toneClass}`}>
-      {icon ? <span className="shrink-0 leading-none">{icon}</span> : null}
+      {icon ? <span className={`shrink-0 leading-none ${animated ? "motion-safe:animate-pulse" : ""}`}>{icon}</span> : null}
       <span className="truncate">{children}</span>
     </span>
   );
@@ -38,6 +40,7 @@ export function MarketPanelHeader({
   title,
   subtitle,
   actions,
+  loading = false,
 }: {
   category?: string;
   categoryIcon?: ReactNode;
@@ -46,6 +49,7 @@ export function MarketPanelHeader({
   title: string;
   subtitle?: string;
   actions: ReactNode;
+  loading?: boolean;
 }) {
   return (
     <div className="traak-trade-panel-header sticky top-0 z-20 flex items-start justify-between gap-3 border-b border-[var(--border)] bg-[var(--surface)] px-4 py-4 shadow-[0_10px_24px_rgba(0,0,0,0.16)] backdrop-blur-2xl sm:px-5">
@@ -58,11 +62,19 @@ export function MarketPanelHeader({
           ) : null}
           <TagPill
             tone="emerald"
-            icon={<span className="block h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.95)]" />}
+            icon={loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <span className="block h-1.5 w-1.5 rounded-full bg-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.95)]" />}
+            animated={loading}
           >
             {status}
           </TagPill>
-          <span className="min-w-0 truncate text-xs font-medium text-[var(--muted)]">{timestamp}</span>
+          {loading ? (
+            <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-cyan-400/15 bg-cyan-400/8 px-2.5 py-1 text-xs font-medium text-[var(--muted)]">
+              <Loader2 className="h-3 w-3 animate-spin text-cyan-500" />
+              <span className="truncate">Updating quote</span>
+            </span>
+          ) : (
+            <span className="min-w-0 truncate text-xs font-medium text-[var(--muted)]">{timestamp}</span>
+          )}
         </div>
         <h2 className="mt-3.5 line-clamp-3 max-w-full overflow-hidden break-words text-xl font-semibold leading-tight text-[var(--foreground)] [overflow-wrap:anywhere] sm:line-clamp-2 sm:text-2xl">
           {title}
