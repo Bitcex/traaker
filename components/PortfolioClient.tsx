@@ -72,15 +72,6 @@ function parseBalanceUsd(raw?: string | null) {
   return parsed / 1_000_000;
 }
 
-function isPositiveAllowance(value: string | null | undefined) {
-  if (!value) return false;
-  try {
-    return BigInt(value) > BigInt(0);
-  } catch {
-    return false;
-  }
-}
-
 function formatDateTime(value: string | undefined) {
   if (!value) return "--";
   const normalized = resolveTransactionTimestamp({ source: "manual", timestamp: value, rawSource: undefined });
@@ -269,8 +260,6 @@ export default function PortfolioClient() {
   }, [loadPortfolio]);
 
   const transactions = useMemo(() => portfolioState?.transactions ?? [], [portfolioState]);
-  const connectedWallets = useMemo(() => portfolioState?.connectedWallets ?? [], [portfolioState]);
-  const walletSyncStatuses = useMemo(() => portfolioState?.walletSyncStatuses ?? {}, [portfolioState]);
   const derivedPositions = useMemo(() => derivePortfolioPositions(transactions).openPositions, [transactions]);
 
   const livePositionMap = useMemo(() => {
@@ -307,18 +296,6 @@ export default function PortfolioClient() {
   }, [derivedPositions, livePositionMap]);
 
   const walletBalance = parseBalanceUsd(accountState?.balance?.balance);
-  const allowanceEntries = accountState?.balance?.allowances ?? {};
-  const positiveAllowanceCount = Object.values(allowanceEntries).filter((value) => isPositiveAllowance(value)).length;
-  const openPositionsValue = useMemo(() => {
-    const values = openPositions.map((position) => position.currentValue).filter((value): value is number => Number.isFinite(value ?? Number.NaN));
-    return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : null;
-  }, [openPositions]);
-
-  const openPositionsPnl = useMemo(() => {
-    const values = openPositions.map((position) => position.unrealizedPnl).filter((value): value is number => Number.isFinite(value ?? Number.NaN));
-    return values.length > 0 ? values.reduce((sum, value) => sum + value, 0) : null;
-  }, [openPositions]);
-
   const addressSummary = useMemo(() => {
     const connected = address ? formatWalletAddress(address) : "Not connected";
     const trading = tradingContext?.tradingWalletAddress ? formatWalletAddress(tradingContext.tradingWalletAddress) : "Unavailable";
@@ -348,16 +325,12 @@ export default function PortfolioClient() {
         ) : null}
 
         {warnings.length > 0 ? (
-          <div className="mb-4 rounded-2xl border border-amber-400/20 bg-amber-950/25 p-4 text-sm text-amber-100">
-            <p className="font-medium">Some portfolio data is still loading.</p>
-            <ul className="mt-2 space-y-1 text-amber-50/85">
-              {warnings.map((warning) => (
-                <li key={warning} className="flex gap-2">
-                  <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300" />
-                  <span>{warning}</span>
-                </li>
-              ))}
-            </ul>
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-white/8 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-300 shadow-[0_0_0_3px_rgba(34,211,238,0.12)]" />
+              <span className="min-w-0 truncate">Portfolio data is refreshing in the background.</span>
+            </div>
+            <span className="hidden text-xs text-slate-500 sm:inline">{warnings.length} update{warnings.length === 1 ? "" : "s"}</span>
           </div>
         ) : null}
 
@@ -380,7 +353,7 @@ export default function PortfolioClient() {
                   ))}
                 </div>
               ) : (
-                <EmptyState title="No open positions yet" description="Open positions will appear here after imported wallet activity or manual records create exposure." />
+                <EmptyState title="No open positions yet" description="Once you have active market exposure, it will appear here with current pricing and value." />
               )}
             </CardContent>
           </Card>
@@ -389,19 +362,13 @@ export default function PortfolioClient() {
             <Card className="border-white/8 bg-[linear-gradient(180deg,rgba(15,23,42,0.95),rgba(2,6,23,0.98))] shadow-[0_24px_90px_rgba(2,6,23,0.3)]">
               <CardHeader className="border-b border-white/6 px-5 py-4">
                 <CardTitle className="text-base font-semibold text-slate-50">Wallet</CardTitle>
-                <CardDescription className="mt-1 text-sm text-slate-400">Balances and wallet addresses for trading and sync.</CardDescription>
+                <CardDescription className="mt-1 text-sm text-slate-400">Balances and wallet addresses used for trading.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-4 p-5">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <WalletField label="Connected wallet" value={addressSummary.connected} />
                   <WalletField label="Trading wallet" value={addressSummary.trading} />
                   <WalletField label="Deposit wallet" value={addressSummary.deposit} />
-                  <div className="rounded-2xl border border-white/8 bg-slate-950/45 p-3">
-                    <p className="text-[11px] uppercase tracking-[0.2em] text-slate-500">Allowances</p>
-                    <p className="mt-2 text-sm font-medium text-slate-100">
-                      {positiveAllowanceCount > 0 ? `${positiveAllowanceCount} active allowance${positiveAllowanceCount === 1 ? "" : "s"}` : "No live allowances loaded"}
-                    </p>
-                  </div>
                 </div>
 
                 <div className="rounded-2xl border border-white/8 bg-white/[0.03] p-4">
@@ -426,68 +393,12 @@ export default function PortfolioClient() {
                   <Link href="/portfolio/connect" className="rounded-full border border-white/10 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/5">
                     Manage wallets
                   </Link>
-                  <span className="text-xs uppercase tracking-[0.2em] text-slate-500">Withdraw only if already supported elsewhere</span>
                 </div>
 
-                <div className="text-xs text-slate-500">
-                  {isConnected ? (
-                    <span>Connected wallet: {addressSummary.connected}</span>
-                  ) : (
-                    <span>Connect a wallet to view balances and trading wallets.</span>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="border-white/8 bg-[linear-gradient(180deg,rgba(15,23,42,0.95),rgba(2,6,23,0.98))] shadow-[0_24px_90px_rgba(2,6,23,0.3)]">
-              <CardHeader className="border-b border-white/6 px-5 py-4">
-                <CardTitle className="text-base font-semibold text-slate-50">Wallet sync</CardTitle>
-                <CardDescription className="mt-1 text-sm text-slate-400">Imported wallet states and recent syncs.</CardDescription>
-              </CardHeader>
-              <CardContent className="p-5">
-                {connectedWallets.length > 0 ? (
-                  <div className="space-y-3">
-                    {connectedWallets.map((wallet) => {
-                      const status = walletSyncStatuses[wallet];
-                      return (
-                        <div key={wallet} className="rounded-2xl border border-white/8 bg-slate-950/50 p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-semibold text-slate-100" title={wallet}>
-                                {formatWalletAddress(wallet)}
-                              </p>
-                              <p className="mt-1 text-xs text-slate-500" title={wallet}>
-                                {wallet}
-                              </p>
-                            </div>
-                            <Badge tone={status ? "green" : "slate"}>{status ? "Synced" : "Connected"}</Badge>
-                          </div>
-                          {status ? (
-                            <div className="mt-3 grid gap-2 text-sm text-slate-400 sm:grid-cols-3">
-                              <span>Imported {status.tradesImported} trades</span>
-                              <span>Found {status.tradesFound} trades</span>
-                              <span>{new Date(status.lastSyncedAt).toLocaleDateString()}</span>
-                            </div>
-                          ) : (
-                            <p className="mt-3 text-sm text-slate-400">This wallet is connected but has not been synced yet.</p>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <EmptyState
-                    title="No connected wallets"
-                    description="Connect a wallet to track imported trades and keep the portfolio synced."
-                  />
-                )}
+                <p className="text-xs text-slate-500">{isConnected ? "Connected wallet loaded." : "Connect a wallet to view balances and trading wallets."}</p>
               </CardContent>
             </Card>
           </div>
-        </div>
-
-        <div className="mt-6 rounded-2xl border border-white/6 bg-slate-950/40 p-4 text-sm text-slate-400">
-          Open positions: {openPositions.length} · Positions value: {toUsd(openPositionsValue)} · Unrealized P&L: {openPositionsPnl === null ? "--" : toUsd(openPositionsPnl)}
         </div>
       </div>
     </main>
