@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { AlertCircle, ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, Loader2, RefreshCw, X } from "lucide-react";
 import { useAccount, usePublicClient, useWalletClient } from "wagmi";
 import { erc20Abi, type Address } from "viem";
@@ -11,6 +12,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { OrderType, placeMarketOrder, Side, isDepositWalletRequiredError } from "@/lib/polymarket/orders";
+import { sharedMarketOutcomeIconUrl } from "@/lib/polymarket/marketDisplay";
 import { formatWalletAddress } from "@/src/lib/display";
 import { derivePortfolioPositions, type PortfolioPosition } from "@/src/lib/positions";
 import {
@@ -50,6 +52,7 @@ type PositionsResponse = {
 };
 
 type EnrichedOpenPosition = PortfolioPosition & {
+  thumbnailUrl?: string | null;
   liveQuote?: number | null;
   currentValue?: number | null;
   unrealizedPnl?: number | null;
@@ -145,6 +148,46 @@ function formatDateTime(value: string | undefined) {
   });
 }
 
+function fallbackPositionInitials(title: string) {
+  const words = title
+    .replace(/[^a-z0-9\s]/gi, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  if (!words.length) return "?";
+  if (words.length === 1) return words[0].slice(0, 2).toUpperCase();
+  return words.slice(0, 2).map((word) => word[0]).join("").toUpperCase();
+}
+
+function PositionAvatar({ title, src }: { title: string; src?: string | null }) {
+  const [failed, setFailed] = useState(false);
+  const fallback = fallbackPositionInitials(title);
+  const resolvedSrc = src?.trim() || "";
+  const displaySrc = !failed && resolvedSrc ? resolvedSrc : "";
+
+  return (
+    <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-xl border border-white/8 bg-slate-900/70 shadow-inner shadow-black/30">
+      {displaySrc ? (
+        <Image
+          alt=""
+          className="h-full w-full object-cover"
+          height={48}
+          unoptimized
+          onError={() => setFailed(true)}
+          src={displaySrc}
+          width={48}
+        />
+      ) : null}
+      {!displaySrc ? (
+        <div className="absolute inset-0 grid place-items-center text-sm font-semibold text-slate-100">{fallback}</div>
+      ) : null}
+    </div>
+  );
+}
+
+function buildPositionThumbnail(position: { marketTitle: string; category?: string; thumbnailUrl?: string | null }) {
+  return position.thumbnailUrl?.trim() || sharedMarketOutcomeIconUrl({ title: position.marketTitle, sport: position.category, league: position.category }) || null;
+}
+
 function WalletField({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/8 bg-slate-950/45 p-3">
@@ -173,9 +216,12 @@ function PositionCard({
     <div className="rounded-3xl border border-white/8 bg-slate-950/60 p-4 shadow-[0_18px_48px_rgba(2,6,23,0.22)]">
       <div className="flex flex-col gap-3">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="text-sm font-semibold leading-tight text-slate-50">{position.marketTitle}</p>
-            <p className="mt-1 min-w-0 truncate text-sm text-slate-400">{position.outcome}</p>
+          <div className="flex min-w-0 items-start gap-3">
+            <PositionAvatar title={position.marketTitle} src={position.thumbnailUrl} />
+            <div className="min-w-0">
+              <p className="text-sm font-semibold leading-tight text-slate-50">{position.marketTitle}</p>
+              <p className="mt-1 min-w-0 truncate text-sm text-slate-400">{position.outcome}</p>
+            </div>
           </div>
           <Badge tone="cyan" className="shrink-0 uppercase tracking-[0.18em]">
             Open
@@ -396,10 +442,13 @@ function SellModal({
       <div className="flex min-h-full items-end justify-center p-3 sm:items-center sm:p-5">
         <div className="w-full max-w-md rounded-[30px] border border-white/10 bg-[linear-gradient(180deg,rgba(15,23,42,0.98),rgba(2,6,23,0.99))] shadow-[0_30px_120px_rgba(2,6,23,0.72)]">
           <div className="flex items-start justify-between gap-4 border-b border-white/8 px-5 py-4 sm:px-6">
-            <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Position trade</p>
-              <h2 className="mt-1 text-lg font-semibold text-slate-50">Sell shares</h2>
-              <p className="mt-1 line-clamp-2 text-sm text-slate-400">{position.marketTitle}</p>
+            <div className="flex min-w-0 items-start gap-3">
+              <PositionAvatar title={position.marketTitle} src={position.thumbnailUrl} />
+              <div className="min-w-0">
+                <p className="text-[11px] uppercase tracking-[0.28em] text-slate-500">Position trade</p>
+                <h2 className="mt-1 text-lg font-semibold text-slate-50">Sell shares</h2>
+                <p className="mt-1 line-clamp-2 text-sm text-slate-400">{position.marketTitle}</p>
+              </div>
             </div>
             <Button aria-label="Close sell dialog" onClick={onClose} size="icon" type="button" variant="ghost">
               <X className="h-4 w-4" />
@@ -701,6 +750,11 @@ export default function PortfolioClient() {
           Number.isFinite(currentValue ?? Number.NaN) ? (currentValue as number) - shares * value.price : null;
         return {
           ...value,
+          thumbnailUrl: buildPositionThumbnail({
+            marketTitle: value.marketTitle,
+            category: value.category,
+            thumbnailUrl: null,
+          }),
           currentValue,
           unrealizedPnl,
         };
@@ -724,6 +778,11 @@ export default function PortfolioClient() {
         const unrealizedPnl = Number.isFinite(currentValue ?? Number.NaN) ? (currentValue as number) - position.shares * position.price : null;
         return {
           ...position,
+          thumbnailUrl: buildPositionThumbnail({
+            marketTitle: position.marketTitle,
+            category: position.category,
+            thumbnailUrl: null,
+          }),
           liveQuote: quote,
           currentValue,
           unrealizedPnl,
