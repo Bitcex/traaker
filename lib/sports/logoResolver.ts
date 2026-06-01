@@ -1,6 +1,7 @@
 import { TEAM_ALIASES, TEAM_SUFFIX_PATTERN } from "@/lib/sports/teamAliases";
 import { canonicalTeamName, cleanOutcomeTeamCandidate, compactTeamText, extractMarketTeams, isNonTeamOutcome, stripTeamSuffix } from "@/lib/sports/marketTeamExtractor";
 import { countryFlagUrl, isClubTeamMarket, isNationalTeamMarket, resolveCountryTeam } from "@/lib/sports/countryTeams";
+import { sharedMarketOutcomeIconUrl } from "@/lib/polymarket/marketDisplay";
 import { resolvePolymarketTeamLogo } from "@/lib/polymarket/teams";
 
 export type SportsLogoProvider = "polymarket" | "sportsmonks" | "thesportsdb" | "local" | "fallback";
@@ -135,6 +136,11 @@ function logoDebugEnabled() {
 function logLogoDebug(message: string, payload: Record<string, unknown>) {
   if (!logoDebugEnabled()) return;
   console.info("[Traak] sports logo debug", { message, ...payload });
+}
+
+function isGenericMarketArtworkUrl(url: string | null, input: SportsLogoInput) {
+  if (!url) return false;
+  return url === sharedMarketOutcomeIconUrl({ title: input.marketTitle, sport: input.sport, league: input.category });
 }
 
 function publicProviderUrl(url: URL | string) {
@@ -739,7 +745,7 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
   debug?.normalizedInput.push(teamName);
 
   const metadataLogoUrl = input.polymarketLogoUrl ?? input.polymarketParticipantLogoUrl ?? null;
-  if (metadataLogoUrl) {
+  if (metadataLogoUrl && !isGenericMarketArtworkUrl(metadataLogoUrl, input)) {
     const result = sportsLogoResolution({
       logoUrl: metadataLogoUrl,
       teamName,
@@ -765,7 +771,23 @@ async function resolveSportsLogoInternal(input: SportsLogoInput, debug?: SportsL
     logLogoDebug("final_logo_result", { input, result });
     return result;
   }
+  if (metadataLogoUrl && isGenericMarketArtworkUrl(metadataLogoUrl, input)) {
+    logLogoDebug("market_metadata_logo_rejected", {
+      marketTitle: input.marketTitle,
+      outcomeName: input.outcomeName,
+      rejectedLogoUrl: metadataLogoUrl,
+      rejectedReason: "generic market artwork; continuing team resolution",
+      sharedMarketArtworkUrl: sharedMarketOutcomeIconUrl({ title: input.marketTitle, sport: input.sport, league: input.category }),
+    });
+  }
 
+  logLogoDebug("team_lookup_attempted", {
+    marketTitle: input.marketTitle,
+    outcomeName: input.outcomeName,
+    normalizedInput: teamName,
+    candidateConfidence: candidate?.confidence ?? null,
+    entityType: entity.entityType,
+  });
   const teamLogoResolution = await resolvePolymarketTeamLogo(
     input.outcomeName,
     {
