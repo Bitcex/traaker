@@ -380,7 +380,7 @@ export function MarketsExplorer({
             activeSport={sport}
             isLoading={isInitialLoading || isSelectedRangePending}
             isRefreshing={isRefreshing && !isSelectedRangePending}
-            loadingLabel={isSelectedRangePending ? `Loading ${selectedRange.label} markets` : "Loading markets"}
+            loadingLabel={isSelectedRangePending ? (selectedRange.start === 0 ? "Refreshing markets" : `Loading ${selectedRange.label} markets`) : "Loading markets"}
             markets={visibleMarkets}
           />
         </div>
