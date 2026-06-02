@@ -238,7 +238,7 @@ export function MarketsExplorer({
 
   return (
     <section className="traak-market-section relative w-full overflow-hidden bg-[var(--background)] text-[var(--foreground)]">
-      <div className="traak-market-toolbar border-b border-[var(--border)] bg-[var(--surface)] shadow-xl shadow-black/25 backdrop-blur-2xl">
+      <div className="traak-market-toolbar border-b border-white/6 bg-[linear-gradient(180deg,rgba(7,12,24,0.94),rgba(7,12,24,0.82))] shadow-[0_16px_44px_rgba(0,0,0,0.24)] backdrop-blur-2xl">
         <div className="mx-auto flex w-full max-w-[118rem] flex-col gap-4 px-5 py-4 sm:px-7 lg:flex-row lg:items-center lg:px-10">
           <div className="flex flex-wrap items-center gap-3">
             {sportPills.map((item) => {
@@ -246,13 +246,13 @@ export function MarketsExplorer({
               return (
                 <Button
                   aria-label={item.label}
-                  className={`h-12 rounded-xl border px-4 text-sm font-bold shadow-lg shadow-black/15 transition duration-200 ${
+                  className={`h-11 rounded-2xl border px-4 text-sm font-semibold shadow-[0_14px_30px_rgba(2,6,23,0.18)] transition duration-200 ${
                     active
-                      ? "border-cyan-300/70 bg-cyan-300/12 text-cyan-100 shadow-[0_0_26px_rgba(34,211,238,0.12)] hover:bg-cyan-300/16"
-                      : "border-[var(--border)] bg-[var(--surface-3)] text-[var(--foreground)] hover:border-slate-700 hover:bg-[var(--surface-2)]"
+                      ? "border-cyan-300/60 bg-cyan-300/12 text-cyan-100 shadow-[0_0_26px_rgba(34,211,238,0.1)] hover:bg-cyan-300/16"
+                      : "border-[var(--border)] bg-[var(--surface-3)] text-[var(--foreground)] hover:border-white/12 hover:bg-[var(--surface-2)]"
                   }`}
                   key={item.label}
-                onClick={() => activateSport(item.label)}
+                  onClick={() => activateSport(item.label)}
                   size="sm"
                   type="button"
                   variant="ghost"
@@ -262,7 +262,7 @@ export function MarketsExplorer({
                 </Button>
               );
             })}
-            <label className="relative inline-flex h-12 items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-bold text-[var(--foreground)] shadow-lg shadow-black/15 transition hover:border-slate-700 hover:bg-[var(--surface-2)]">
+            <label className="relative inline-flex h-11 items-center gap-2 rounded-2xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] shadow-[0_14px_30px_rgba(2,6,23,0.18)] transition hover:border-white/12 hover:bg-[var(--surface-2)]">
               More
               <ChevronDown className="h-4 w-4 text-[var(--muted)]" />
               <select
@@ -286,7 +286,7 @@ export function MarketsExplorer({
             <label className="relative block flex-1 lg:max-w-md">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" />
               <Input
-                className="h-12 rounded-xl pl-11 text-sm shadow-inner shadow-black/25 transition focus:border-cyan-300/60 placeholder:text-[var(--muted)]"
+                className="h-11 rounded-2xl pl-11 text-sm shadow-[0_12px_28px_rgba(2,6,23,0.18)] transition focus:border-cyan-300/60 placeholder:text-[var(--muted)]"
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search markets..."
                 value={query}
@@ -294,7 +294,7 @@ export function MarketsExplorer({
             </label>
             <Button
               aria-label="Refresh markets"
-              className="h-12 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] transition hover:border-slate-700 hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
+              className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] transition hover:border-white/12 hover:bg-[var(--surface-2)] hover:text-[var(--foreground)]"
               disabled={isLoading}
               onClick={() => setRefreshNonce((value) => value + 1)}
               size="sm"
@@ -314,7 +314,7 @@ export function MarketsExplorer({
       ) : null}
 
       {query.trim() ? (
-        <div className="traak-search-panel absolute right-5 top-24 z-30 w-[min(92vw,420px)] rounded-xl border border-slate-800 bg-[#090d15]/98 p-3 text-sm text-slate-100 shadow-2xl shadow-black/50 backdrop-blur-2xl lg:top-20">
+        <div className="traak-search-panel absolute right-5 top-24 z-30 w-[min(92vw,420px)] rounded-[24px] border border-white/8 bg-[#090d15]/98 p-3 text-sm text-slate-100 shadow-[0_24px_80px_rgba(0,0,0,0.45)] backdrop-blur-2xl lg:top-20">
           <div className="mb-2 flex items-center justify-between gap-3">
             <p className="text-xs uppercase tracking-[0.16em] text-zinc-500">Snapshot results</p>
             <span className="text-xs text-zinc-500">{searchResults.length}</span>
@@ -326,7 +326,7 @@ export function MarketsExplorer({
                 const visuals = getMarketOutcomeVisuals(market);
                 return (
                   <button
-                    className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-800 bg-black/35 px-3 py-2 text-left transition hover:border-cyan-400/50 hover:bg-cyan-400/10"
+                    className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/6 bg-black/30 px-3 py-2.5 text-left transition hover:border-cyan-400/40 hover:bg-cyan-400/10"
                     key={market.id}
                     onClick={() => setSelectedSearchMarket(marketToBubbleNode(market, index))}
                     type="button"
@@ -358,12 +358,12 @@ export function MarketsExplorer({
       ) : null}
 
       <div className="mx-auto w-full max-w-[118rem] px-5 py-7 sm:px-7 lg:px-10">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <h1 className="traak-market-heading text-3xl font-bold tracking-tight text-[var(--foreground)] sm:text-4xl">Live Markets</h1>
+            <h1 className="traak-market-heading text-3xl font-semibold tracking-tight text-[var(--foreground)] sm:text-4xl">Live Markets</h1>
           </div>
           <Button
-            className="h-11 rounded-xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] shadow-lg shadow-black/15 transition hover:border-cyan-400/35 hover:bg-cyan-400/8"
+            className="h-11 rounded-2xl border border-[var(--border)] bg-[var(--surface-3)] px-4 text-sm font-semibold text-[var(--foreground)] shadow-[0_14px_30px_rgba(2,6,23,0.18)] transition hover:border-cyan-400/35 hover:bg-cyan-400/8"
             onClick={() => {
               setRangeStart(0);
               setQuery("");
@@ -375,7 +375,7 @@ export function MarketsExplorer({
           </Button>
         </div>
 
-        <div className="traak-market-stage-shell rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_90px_rgba(15,23,42,0.12)]">
+        <div className="traak-market-stage-shell rounded-[1.9rem] border border-white/8 bg-[linear-gradient(180deg,rgba(9,15,27,0.88),rgba(5,10,20,0.96))] p-3 shadow-[0_28px_90px_rgba(2,6,23,0.26),inset_0_1px_0_rgba(255,255,255,0.03)]">
           <MarketBubbleMap
             activeSport={sport}
             isLoading={isInitialLoading || isSelectedRangePending}

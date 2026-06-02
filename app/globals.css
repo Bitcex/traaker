@@ -1,16 +1,16 @@
 @import "tailwindcss";
 
 :root {
-  --background: #020617;
-  --foreground: #e2e8f0;
-  --surface: rgba(2, 6, 23, 0.88);
-  --surface-2: rgba(15, 23, 42, 0.9);
-  --surface-3: rgba(15, 23, 42, 0.64);
-  --border: rgba(51, 65, 85, 0.8);
-  --muted: #94a3b8;
-  --accent: #22d3ee;
+  --background: #040812;
+  --foreground: #e5edf8;
+  --surface: rgba(7, 12, 24, 0.9);
+  --surface-2: rgba(14, 22, 38, 0.94);
+  --surface-3: rgba(16, 24, 40, 0.72);
+  --border: rgba(88, 110, 146, 0.28);
+  --muted: #92a4bf;
+  --accent: #2fd8ee;
   --accent-foreground: #020617;
-  --input: rgba(2, 6, 23, 0.96);
+  --input: rgba(7, 12, 24, 0.96);
   color-scheme: dark;
 }
 
@@ -26,8 +26,9 @@ body {
   font-family: var(--font-geist-sans), "Segoe UI", sans-serif;
   min-height: 100vh;
   background-image:
-    linear-gradient(180deg, color-mix(in oklab, var(--accent) 10%, transparent), transparent 22rem),
-    linear-gradient(180deg, var(--background) 0%, color-mix(in oklab, var(--background) 92%, white 8%) 55%, color-mix(in oklab, var(--background) 96%, black 4%) 100%);
+    radial-gradient(circle at top center, rgba(47, 216, 238, 0.11) 0%, rgba(47, 216, 238, 0.03) 24%, transparent 44%),
+    radial-gradient(circle at 18% 16%, rgba(36, 99, 235, 0.08) 0%, transparent 26%),
+    linear-gradient(180deg, #08101e 0%, #050914 28%, #03060f 100%);
 }
 
 * {
@@ -36,6 +37,17 @@ body {
 
 ::selection {
   background: color-mix(in oklab, var(--accent) 25%, transparent);
+}
+
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 18%),
+    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.035), transparent 30%);
+  opacity: 0.75;
 }
 
 .traak-scrollbar {

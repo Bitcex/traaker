@@ -2087,7 +2087,7 @@ export function MarketBubbleMap({
   return (
     <div
       aria-label={`${bodyCount} sports market bubble map`}
-      className="traak-market-board relative h-[clamp(430px,62svh,620px)] w-full overflow-hidden rounded-xl border border-[var(--border)] bg-[var(--surface)] shadow-[0_28px_90px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.04)] md:h-[clamp(440px,calc(100svh-19rem),620px)]"
+      className="traak-market-board relative h-[clamp(430px,62svh,620px)] w-full overflow-hidden rounded-[24px] border border-white/8 bg-[linear-gradient(180deg,rgba(9,15,27,0.84),rgba(6,10,20,0.94))] shadow-[0_28px_90px_rgba(0,0,0,0.36),inset_0_1px_0_rgba(255,255,255,0.04)] md:h-[clamp(440px,calc(100svh-19rem),620px)]"
       onClick={handleClick}
       onMouseLeave={handleMouseLeave}
       onMouseMove={handleMouseMove}
@@ -2101,7 +2101,7 @@ export function MarketBubbleMap({
 
       {hoveredMarket ? (
         <div
-          className="pointer-events-none absolute z-20 w-72 rounded-lg border border-[var(--border)] bg-[var(--surface)] p-3 text-xs text-[var(--foreground)] shadow-2xl shadow-black/40 backdrop-blur"
+          className="pointer-events-none absolute z-20 w-72 rounded-2xl border border-white/8 bg-[linear-gradient(180deg,rgba(11,18,32,0.96),rgba(7,12,24,0.94))] p-3 text-xs text-[var(--foreground)] shadow-[0_24px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl"
           style={{ left: Math.min(pointer.x + 14, Math.max(12, dimensions.width - 300)), top: Math.min(pointer.y + 14, Math.max(12, dimensions.height - 140)) }}
         >
           <p className="line-clamp-2 font-semibold text-[var(--foreground)]">{hoveredMarket.title}</p>
@@ -2125,7 +2125,7 @@ export function MarketBubbleMap({
       ) : null}
 
       {isRefreshing ? (
-        <div className="traak-market-board-badge absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-cyan-400/25 bg-[var(--surface)] px-3 py-1.5 text-xs font-semibold text-cyan-600 shadow-xl shadow-black/30 backdrop-blur-md dark:text-cyan-100">
+        <div className="traak-market-board-badge absolute left-3 top-3 z-20 flex items-center gap-2 rounded-full border border-cyan-400/20 bg-[linear-gradient(180deg,rgba(10,18,32,0.88),rgba(7,12,24,0.94))] px-3 py-1.5 text-xs font-semibold text-cyan-100 shadow-xl shadow-black/30 backdrop-blur-md">
           <div className="h-3 w-3 rounded-full border border-cyan-300/35 border-t-cyan-300 motion-safe:animate-spin" />
           <span>Updating markets</span>
         </div>
