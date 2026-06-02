@@ -155,6 +155,17 @@ const formatCents = (value: number | null | undefined) => {
   return `${Math.round((value as number) * 100)}c`;
 };
 
+function formatPortfolioSellError(error: unknown) {
+  const message = error instanceof Error ? error.message : "Unable to submit sell order.";
+  if (/no orders found to match|fak order|fok order|partially filled or killed|no buyers available/i.test(message)) {
+    return "No buyers are available for that full size at the latest quote. Try fewer shares or wait for liquidity to improve.";
+  }
+  if (/unable to refresh the quote|no sell quote is available/i.test(message)) {
+    return "The sell quote changed before submission. Refresh the portfolio and try again.";
+  }
+  return message;
+}
+
 const portfolioDebugLog = (...args: unknown[]) => {
   if (!PORTFOLIO_DEBUG) return;
   console.info("[portfolio]", ...args);
@@ -502,6 +513,7 @@ type SellModalProps = {
   error: string;
   onClose: () => void;
   onAmountChange: (value: string) => void;
+  onSetMax: () => void;
   onSubmit: () => void;
 };
 
@@ -517,6 +529,7 @@ function SellModal({
   error,
   onClose,
   onAmountChange,
+  onSetMax,
   onSubmit,
 }: SellModalProps) {
   if (!open || !position) return null;
@@ -550,7 +563,7 @@ function SellModal({
                 <span className="font-semibold text-slate-100">{formatCents(selectedBid)}</span>
               </div>
               <div className="mt-2 flex justify-between gap-3 text-sm text-slate-300">
-                <span>Estimated proceeds</span>
+                <span>Estimated receive</span>
                 <span className="font-semibold text-slate-100">{formatCurrency(estimatedProceeds)}</span>
               </div>
             </div>
@@ -582,7 +595,17 @@ function SellModal({
             ) : null}
 
             <label className="block text-sm">
-              <span className="text-slate-300">Shares to sell</span>
+              <span className="flex items-center justify-between gap-3 text-slate-300">
+                <span>Shares to sell</span>
+                <button
+                  className="rounded-full border border-cyan-400/25 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-cyan-200 transition hover:border-cyan-300/45 hover:bg-cyan-400/10"
+                  disabled={submitting}
+                  onClick={onSetMax}
+                  type="button"
+                >
+                  Max
+                </button>
+              </span>
               <Input
                 className="mt-2 border-slate-800 bg-black text-base font-semibold text-slate-50"
                 disabled={submitting}
@@ -1122,7 +1145,7 @@ export default function PortfolioClient() {
           currentPrice: price as number,
           maxSlippageBps: 300,
           side: Side.SELL,
-          orderType: OrderType.FAK,
+          orderType: OrderType.FOK,
           negRisk: negativeRisk,
         });
       };
@@ -1137,7 +1160,7 @@ export default function PortfolioClient() {
       closeSellModal();
       await loadPortfolio("refresh");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to submit sell order.");
+      setError(formatPortfolioSellError(err));
     } finally {
       setSelling(false);
       setTradeProgress("idle");
@@ -1405,6 +1428,7 @@ export default function PortfolioClient() {
           estimatedProceeds={estimatedSellProceeds}
           onAmountChange={(value) => setSellState((current) => (current ? { ...current, amount: value } : current))}
           onClose={closeSellModal}
+          onSetMax={() => setSellState((current) => (current ? { ...current, amount: String(current.position.shares) } : current))}
           onSubmit={() => void submitSell()}
           loadingArtwork={
             sellState

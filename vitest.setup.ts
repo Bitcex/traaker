@@ -37,3 +37,10 @@ if (typeof HTMLCanvasElement !== "undefined") {
     value: () => createCanvasContextStub(),
   });
 }
+
+if (typeof HTMLElement !== "undefined" && !HTMLElement.prototype.scrollTo) {
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+    configurable: true,
+    value: () => undefined,
+  });
+}
