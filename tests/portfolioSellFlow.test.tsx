@@ -104,8 +104,9 @@ const basePosition: LivePosition = {
 
 const defaultOrderbook = {
   bids: [
-    { price: 0.33, size: 4, total: 4 },
-    { price: 0.29, size: 6, total: 10 },
+    { price: 0.01, size: 50, total: 50 },
+    { price: 0.33, size: 4, total: 54 },
+    { price: 0.29, size: 6, total: 60 },
     { price: 0.27, size: 5, total: 15 },
   ],
   asks: [],

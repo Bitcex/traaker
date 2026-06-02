@@ -196,7 +196,8 @@ async function fetchPortfolioSellOrderbook(tokenId: string) {
 }
 
 function buildPortfolioSellQuote(orderbook: NormalizedOrderbook | null, amount: number): PortfolioSellQuote {
-  const bestBid = orderbook?.bids[0]?.price ?? null;
+  const sortedBids = [...(orderbook?.bids ?? [])].sort((left, right) => right.price - left.price);
+  const bestBid = sortedBids[0]?.price ?? null;
   if (!orderbook || !Number.isFinite(amount) || amount <= 0) {
     return {
       bestBid,
@@ -212,7 +213,7 @@ function buildPortfolioSellQuote(orderbook: NormalizedOrderbook | null, amount: 
   let sellableShares = 0;
   let protectionPrice: number | null = null;
 
-  for (const level of orderbook.bids) {
+  for (const level of sortedBids) {
     if (remaining <= SELL_EPSILON) break;
     if (!Number.isFinite(level.price) || !Number.isFinite(level.size) || level.size <= 0 || level.price <= 0) continue;
     const fillSize = Math.min(level.size, remaining);
@@ -1166,13 +1167,8 @@ export default function PortfolioClient() {
     () => buildPortfolioSellQuote(sellOrderbook, selectedSellAmount),
     [sellOrderbook, selectedSellAmount],
   );
-  const selectedSellBid =
-    sellQuote.bestBid ?? sellState?.position.liveQuote ?? sellState?.position.bestBid ?? sellState?.position.curPrice ?? null;
-  const estimatedSellProceeds =
-    sellQuote.estimatedReceive ??
-    (Number.isFinite(selectedSellAmount) && Number.isFinite(selectedSellBid ?? Number.NaN)
-      ? selectedSellAmount * (selectedSellBid as number)
-      : null);
+  const selectedSellBid = sellQuote.bestBid ?? null;
+  const estimatedSellProceeds = sellQuote.estimatedReceive;
 
   const closeSellModal = useCallback(() => {
     setSellState(null);

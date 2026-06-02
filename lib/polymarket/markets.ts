@@ -1768,18 +1768,26 @@ export async function getMarketById(id: string) {
 }
 
 function normalizeOrderbook(book: OrderBookSummary): NormalizedOrderbook {
-  const mapSide = (levels: { price: string; size: string }[]) => {
+  const mapSide = (levels: { price: string; size: string }[], isBid: boolean) => {
+    const sorted = levels
+      .map((level) => ({
+        price: asNumber(level.price),
+        size: asNumber(level.size),
+      }))
+      .filter((level) => Number.isFinite(level.price) && Number.isFinite(level.size) && level.size > 0)
+      .sort((left, right) => (isBid ? right.price - left.price : left.price - right.price));
+
     let running = 0;
-    return levels.slice(0, 8).map((level) => {
-      const size = asNumber(level.size);
+    return sorted.slice(0, 8).map((level) => {
+      const size = level.size;
       running += size;
-      return { price: asNumber(level.price), size, total: running };
+      return { price: level.price, size, total: running };
     });
   };
 
   return {
-    bids: mapSide(book.bids ?? []),
-    asks: mapSide(book.asks ?? []),
+    bids: mapSide(book.bids ?? [], true),
+    asks: mapSide(book.asks ?? [], false),
     tickSize: book.tick_size,
     minOrderSize: book.min_order_size,
     lastTradePrice: asNumber(book.last_trade_price),
