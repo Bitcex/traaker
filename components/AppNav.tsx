@@ -3,9 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Moon, Sun } from "lucide-react";
 import { WalletConnectButton } from "@/components/WalletConnectButton";
-import { useTraakTheme } from "@/components/Providers";
 
 function navLinkClass(active: boolean) {
   return [
@@ -18,7 +16,6 @@ function navLinkClass(active: boolean) {
 
 export function AppNav() {
   const pathname = usePathname();
-  const { theme, toggleTheme } = useTraakTheme();
   const portfolioActive = pathname.startsWith("/portfolio");
   const marketsActive = !portfolioActive;
 
@@ -47,14 +44,6 @@ export function AppNav() {
           </nav>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
-            className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--border)] bg-[var(--surface)] text-[var(--foreground)] shadow-lg shadow-black/20 transition hover:border-cyan-300/40 hover:bg-[var(--surface-2)]"
-            onClick={toggleTheme}
-            type="button"
-          >
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </button>
           <WalletConnectButton />
         </div>
       </div>

@@ -375,19 +375,14 @@ export function MarketsExplorer({
           </Button>
         </div>
 
-        {isRefreshing ? (
-          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/8 px-3 py-1.5 text-xs font-semibold text-cyan-700 dark:text-cyan-100">
-            <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            <span>
-              {isSelectedRangePending
-                ? `Loading ${selectedRange.label} markets`
-                : `Updating ${sport === "All" ? "markets" : `${sport} markets`}`}
-            </span>
-          </div>
-        ) : null}
-
         <div className="traak-market-stage-shell rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_90px_rgba(15,23,42,0.12)]">
-          <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading || isSelectedRangePending} isRefreshing={isRefreshing && !isSelectedRangePending} markets={visibleMarkets} />
+          <MarketBubbleMap
+            activeSport={sport}
+            isLoading={isInitialLoading || isSelectedRangePending}
+            isRefreshing={isRefreshing && !isSelectedRangePending}
+            loadingLabel={isSelectedRangePending ? `Loading ${selectedRange.label} markets` : "Loading markets"}
+            markets={visibleMarkets}
+          />
         </div>
 
       </div>

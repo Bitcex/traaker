@@ -1899,11 +1899,13 @@ export function MarketBubbleMap({
   isLoading = false,
   isRefreshing = false,
   activeSport,
+  loadingLabel = "Loading markets",
 }: {
   markets: TerminalMarket[];
   isLoading?: boolean;
   isRefreshing?: boolean;
   activeSport?: string;
+  loadingLabel?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -2118,7 +2120,7 @@ export function MarketBubbleMap({
 
       {loadingVisible ? (
         <div className={`absolute inset-0 z-30 transition-opacity duration-300 ${isLoading ? "opacity-100" : "pointer-events-none opacity-0"}`}>
-          <TraakLoadingOverlay label="Loading markets" />
+          <TraakLoadingOverlay label={loadingLabel} />
         </div>
       ) : null}
 

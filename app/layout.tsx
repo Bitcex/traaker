@@ -30,9 +30,8 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <Script id="traak-theme-init" strategy="beforeInteractive">{`
           try {
-            var stored = window.localStorage.getItem('traak-theme');
-            var theme = stored === 'light' ? 'light' : 'dark';
-            document.documentElement.dataset.theme = theme;
+            window.localStorage.removeItem('traak-theme');
+            document.documentElement.dataset.theme = 'dark';
           } catch (error) {}
         `}</Script>
         <Providers>
