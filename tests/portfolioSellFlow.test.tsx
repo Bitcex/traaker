@@ -102,6 +102,18 @@ const basePosition: LivePosition = {
   thumbnailUrl: null,
 };
 
+const defaultOrderbook = {
+  bids: [
+    { price: 0.33, size: 4, total: 4 },
+    { price: 0.29, size: 6, total: 10 },
+    { price: 0.27, size: 5, total: 15 },
+  ],
+  asks: [],
+  tickSize: "0.01",
+  minOrderSize: "1",
+  lastTradePrice: 0.33,
+};
+
 function createPortfolioState() {
   return {
     transactions: [],
@@ -110,8 +122,9 @@ function createPortfolioState() {
   };
 }
 
-function installFetchMock(options?: { positions?: LivePosition[][] }) {
+function installFetchMock(options?: { positions?: LivePosition[][]; orderbook?: typeof defaultOrderbook }) {
   const positionsQueue = [...(options?.positions ?? [[basePosition]])];
+  const orderbook = options?.orderbook ?? defaultOrderbook;
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     if (url.includes("/api/portfolio/state")) {
@@ -123,6 +136,9 @@ function installFetchMock(options?: { positions?: LivePosition[][] }) {
     }
     if (url.includes("/api/polymarket/account")) {
       return new Response(JSON.stringify({ ok: true, balance: { balance: "10000000" } }), { status: 200 });
+    }
+    if (url.includes("/api/polymarket/orderbook")) {
+      return new Response(JSON.stringify({ ok: true, orderbook }), { status: 200 });
     }
     if (url.includes("/api/polymarket/markets/")) {
       return new Response(
@@ -201,11 +217,12 @@ describe("Portfolio sell flow", () => {
     expect(screen.getAllByRole("button", { name: /^Sell$/ })).toHaveLength(2);
   });
 
-  it("sells max shares and submits a market sell with FOK", async () => {
+  it("uses depth to estimate and submit a full-size market sell", async () => {
     installFetchMock({ positions: [[basePosition], []] });
     render(<PortfolioClient />);
 
     await openSellModal();
+    await waitFor(() => expect(screen.getByText("$3.06")).toBeInTheDocument());
     const input = screen.getByRole("spinbutton");
     fireEvent.change(input, { target: { value: "4" } });
     fireEvent.click(screen.getByText("Max"));
@@ -219,9 +236,10 @@ describe("Portfolio sell flow", () => {
       expect.objectContaining({
         tokenID: "111111",
         amount: 10,
-        currentPrice: 0.33,
+        currentPrice: 0.29,
         side: expect.anything(),
         orderType: expect.anything(),
+        maxSlippageBps: 0,
       }),
     );
     const payload = mocks.placeMarketOrder.mock.calls[0]?.[1];
@@ -271,9 +289,16 @@ describe("Portfolio sell flow", () => {
     expect(mocks.placeMarketOrder).not.toHaveBeenCalled();
   });
 
-  it("shows a clear liquidity changed error", async () => {
-    installFetchMock();
-    mocks.placeMarketOrder.mockRejectedValueOnce(new Error("no orders found to match with FOK order"));
+  it("shows a clear insufficient liquidity message when depth cannot fill the request", async () => {
+    installFetchMock({
+      orderbook: {
+        ...defaultOrderbook,
+        bids: [
+          { price: 0.33, size: 2, total: 2 },
+          { price: 0.29, size: 3, total: 5 },
+        ],
+      },
+    });
     render(<PortfolioClient />);
 
     await openSellModal();
@@ -282,9 +307,23 @@ describe("Portfolio sell flow", () => {
     expect(
       (
         await screen.findAllByText(
-          "No buyers are available for that full size at the latest quote. Try fewer shares or wait for liquidity to improve.",
+          "Only part of this position can be sold right now. Try a smaller amount or wait for more liquidity.",
         )
       ).length,
+    ).toBeGreaterThan(0);
+    expect(mocks.placeMarketOrder).not.toHaveBeenCalled();
+  });
+
+  it("maps a late liquidity change into the same professional error", async () => {
+    installFetchMock();
+    mocks.placeMarketOrder.mockRejectedValueOnce(new Error("order couldn't be fully filled. FOK order"));
+    render(<PortfolioClient />);
+
+    await openSellModal();
+    clickModalSellButton();
+
+    expect(
+      (await screen.findAllByText("Only part of this position can be sold right now. Try a smaller amount or wait for more liquidity.")).length,
     ).toBeGreaterThan(0);
   });
 

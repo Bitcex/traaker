@@ -23,6 +23,7 @@ import {
   type TradingWalletContext,
 } from "@/lib/polymarket/tradeSetup";
 import { withdrawFromTradingWallet } from "@/lib/polymarket/withdraw";
+import type { NormalizedOrderbook } from "@/lib/polymarket/types";
 import { resolveTransactionTimestamp, type Transaction, type WalletSyncStatus } from "@/src/lib/storage";
 import { getPolymarketExchangeConfig } from "@/lib/polymarket/relayer";
 
@@ -88,6 +89,20 @@ type EnrichedOpenPosition = PortfolioPosition & {
 type SellState = {
   position: EnrichedOpenPosition;
   amount: string;
+};
+
+type OrderbookResponse = {
+  ok?: boolean;
+  orderbook?: NormalizedOrderbook;
+  error?: string;
+};
+
+type PortfolioSellQuote = {
+  bestBid: number | null;
+  estimatedReceive: number | null;
+  protectionPrice: number | null;
+  sellableShares: number;
+  hasSufficientLiquidity: boolean;
 };
 
 const PORTFOLIO_DEBUG = process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_PORTFOLIO_DEBUG === "1";
@@ -157,13 +172,64 @@ const formatCents = (value: number | null | undefined) => {
 
 function formatPortfolioSellError(error: unknown) {
   const message = error instanceof Error ? error.message : "Unable to submit sell order.";
-  if (/no orders found to match|fak order|fok order|partially filled or killed|no buyers available/i.test(message)) {
-    return "No buyers are available for that full size at the latest quote. Try fewer shares or wait for liquidity to improve.";
+  if (/no orders found to match|fak order|fok order|partially filled or killed|no buyers available|fully filled/i.test(message)) {
+    return "Only part of this position can be sold right now. Try a smaller amount or wait for more liquidity.";
   }
   if (/unable to refresh the quote|no sell quote is available/i.test(message)) {
     return "The sell quote changed before submission. Refresh the portfolio and try again.";
   }
   return message;
+}
+
+const SELL_EPSILON = 0.000001;
+
+async function fetchPortfolioSellOrderbook(tokenId: string) {
+  const response = await fetch(`/api/polymarket/orderbook?tokenId=${encodeURIComponent(tokenId)}`, {
+    headers: { Accept: "application/json" },
+    cache: "no-store",
+  });
+  const data = (await response.json().catch(() => null)) as OrderbookResponse | null;
+  if (!response.ok || !data?.ok || !data.orderbook) {
+    throw new Error(data?.error ?? "Unable to load sell liquidity.");
+  }
+  return data.orderbook;
+}
+
+function buildPortfolioSellQuote(orderbook: NormalizedOrderbook | null, amount: number): PortfolioSellQuote {
+  const bestBid = orderbook?.bids[0]?.price ?? null;
+  if (!orderbook || !Number.isFinite(amount) || amount <= 0) {
+    return {
+      bestBid,
+      estimatedReceive: null,
+      protectionPrice: bestBid,
+      sellableShares: 0,
+      hasSufficientLiquidity: false,
+    };
+  }
+
+  let remaining = amount;
+  let estimatedReceive = 0;
+  let sellableShares = 0;
+  let protectionPrice: number | null = null;
+
+  for (const level of orderbook.bids) {
+    if (remaining <= SELL_EPSILON) break;
+    if (!Number.isFinite(level.price) || !Number.isFinite(level.size) || level.size <= 0 || level.price <= 0) continue;
+    const fillSize = Math.min(level.size, remaining);
+    estimatedReceive += fillSize * level.price;
+    sellableShares += fillSize;
+    remaining -= fillSize;
+    protectionPrice = level.price;
+  }
+
+  const hasSufficientLiquidity = remaining <= SELL_EPSILON;
+  return {
+    bestBid,
+    estimatedReceive: sellableShares > SELL_EPSILON ? estimatedReceive : null,
+    protectionPrice,
+    sellableShares,
+    hasSufficientLiquidity,
+  };
 }
 
 const portfolioDebugLog = (...args: unknown[]) => {
@@ -508,6 +574,7 @@ type SellModalProps = {
   amount: string;
   estimatedProceeds: number | null;
   selectedBid: number | null;
+  quoteLoading: boolean;
   tradeProgress: TradeProgress;
   submitting: boolean;
   error: string;
@@ -524,6 +591,7 @@ function SellModal({
   amount,
   estimatedProceeds,
   selectedBid,
+  quoteLoading,
   tradeProgress,
   submitting,
   error,
@@ -560,11 +628,11 @@ function SellModal({
               </div>
               <div className="mt-2 flex justify-between gap-3 text-sm text-slate-300">
                 <span>Best bid</span>
-                <span className="font-semibold text-slate-100">{formatCents(selectedBid)}</span>
+                <span className="font-semibold text-slate-100">{quoteLoading ? "Loading..." : formatCents(selectedBid)}</span>
               </div>
               <div className="mt-2 flex justify-between gap-3 text-sm text-slate-300">
                 <span>Estimated receive</span>
-                <span className="font-semibold text-slate-100">{formatCurrency(estimatedProceeds)}</span>
+                <span className="font-semibold text-slate-100">{quoteLoading ? "Loading..." : formatCurrency(estimatedProceeds)}</span>
               </div>
             </div>
 
@@ -654,6 +722,9 @@ export default function PortfolioClient() {
   const [walletBalanceLoading, setWalletBalanceLoading] = useState(true);
   const [walletBalanceError, setWalletBalanceError] = useState("");
   const [sellState, setSellState] = useState<SellState | null>(null);
+  const [sellError, setSellError] = useState("");
+  const [sellOrderbook, setSellOrderbook] = useState<NormalizedOrderbook | null>(null);
+  const [sellQuoteLoading, setSellQuoteLoading] = useState(false);
   const [selling, setSelling] = useState(false);
   const [tradeProgress, setTradeProgress] = useState<TradeProgress>("idle");
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -1061,15 +1132,53 @@ export default function PortfolioClient() {
     return { connected, trading, deposit };
   }, [address, tradingContext]);
 
+  useEffect(() => {
+    if (!sellState?.position.tokenId) {
+      setSellOrderbook(null);
+      setSellQuoteLoading(false);
+      return;
+    }
+
+    let active = true;
+    setSellQuoteLoading(true);
+
+    void fetchPortfolioSellOrderbook(sellState.position.tokenId)
+      .then((orderbook) => {
+        if (!active) return;
+        setSellOrderbook(orderbook);
+      })
+      .catch(() => {
+        if (!active) return;
+        setSellOrderbook(null);
+      })
+      .finally(() => {
+        if (!active) return;
+        setSellQuoteLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [sellState?.position.tokenId]);
+
   const selectedSellAmount = Number(sellState?.amount ?? 0);
-  const selectedSellBid = sellState?.position.liveQuote ?? sellState?.position.bestBid ?? sellState?.position.curPrice ?? null;
+  const sellQuote = useMemo(
+    () => buildPortfolioSellQuote(sellOrderbook, selectedSellAmount),
+    [sellOrderbook, selectedSellAmount],
+  );
+  const selectedSellBid =
+    sellQuote.bestBid ?? sellState?.position.liveQuote ?? sellState?.position.bestBid ?? sellState?.position.curPrice ?? null;
   const estimatedSellProceeds =
-    Number.isFinite(selectedSellAmount) && Number.isFinite(selectedSellBid ?? Number.NaN)
+    sellQuote.estimatedReceive ??
+    (Number.isFinite(selectedSellAmount) && Number.isFinite(selectedSellBid ?? Number.NaN)
       ? selectedSellAmount * (selectedSellBid as number)
-      : null;
+      : null);
 
   const closeSellModal = useCallback(() => {
     setSellState(null);
+    setSellError("");
+    setSellOrderbook(null);
+    setSellQuoteLoading(false);
     setTradeProgress("idle");
     setSelling(false);
   }, []);
@@ -1078,45 +1187,52 @@ export default function PortfolioClient() {
     if (!sellState || selling) return;
     const amount = Number(sellState.amount);
     const position = sellState.position;
-    const price = position.liveQuote ?? position.bestBid ?? position.curPrice;
     const tokenId = position.tokenId ?? "";
     const negativeRisk = Boolean(position.negativeRisk);
 
     setError("");
+    setSellError("");
     setNotice("");
 
     if (!isConnected || !walletClient || !address) {
-      setError("Connect a wallet before selling.");
+      setSellError("Connect a wallet before selling.");
       return;
     }
     if (chainId !== 137) {
-      setError("Switch to Polygon mainnet before selling.");
+      setSellError("Switch to Polygon mainnet before selling.");
       return;
     }
     if (!publicClient) {
-      setError("Polygon client is unavailable.");
+      setSellError("Polygon client is unavailable.");
       return;
     }
     if (!tokenId) {
-      setError("This position is missing a CLOB token id.");
+      setSellError("This position is missing a CLOB token id.");
       return;
     }
     if (!Number.isFinite(amount) || amount <= 0) {
-      setError("Enter a share amount greater than 0.");
+      setSellError("Enter a share amount greater than 0.");
       return;
     }
     if (amount > position.shares) {
-      setError("Sell amount cannot exceed available shares.");
-      return;
-    }
-    if (!Number.isFinite(price ?? Number.NaN) || (price as number) <= 0) {
-      setError("No sell quote is available for this position.");
+      setSellError("Sell amount cannot exceed available shares.");
       return;
     }
 
     setSelling(true);
+    setSellQuoteLoading(true);
     setTradeProgress("checking-wallet");
     try {
+      const orderbook = await fetchPortfolioSellOrderbook(tokenId);
+      setSellOrderbook(orderbook);
+      const latestQuote = buildPortfolioSellQuote(orderbook, amount);
+      if (!Number.isFinite(latestQuote.bestBid ?? Number.NaN) || (latestQuote.bestBid as number) <= 0) {
+        throw new Error("No sell quote is available for this position.");
+      }
+      if (!latestQuote.hasSufficientLiquidity || !Number.isFinite(latestQuote.protectionPrice ?? Number.NaN)) {
+        throw new Error("Only part of this position can be sold right now. Try a smaller amount or wait for more liquidity.");
+      }
+
       const executeSell = async () => {
         const setup = await ensureTradingReady({
           walletClient,
@@ -1125,7 +1241,7 @@ export default function PortfolioClient() {
           side: "Sell",
           tokenId,
           amount,
-          price: price as number,
+          price: latestQuote.bestBid as number,
           negRisk: negativeRisk,
           onProgress: setTradeProgress,
         });
@@ -1142,8 +1258,8 @@ export default function PortfolioClient() {
         return placeMarketOrder(client, {
           tokenID: tokenId,
           amount,
-          currentPrice: price as number,
-          maxSlippageBps: 300,
+          currentPrice: latestQuote.protectionPrice as number,
+          maxSlippageBps: 0,
           side: Side.SELL,
           orderType: OrderType.FOK,
           negRisk: negativeRisk,
@@ -1160,8 +1276,9 @@ export default function PortfolioClient() {
       closeSellModal();
       await loadPortfolio("refresh");
     } catch (err) {
-      setError(formatPortfolioSellError(err));
+      setSellError(formatPortfolioSellError(err));
     } finally {
+      setSellQuoteLoading(false);
       setSelling(false);
       setTradeProgress("idle");
     }
@@ -1336,7 +1453,11 @@ export default function PortfolioClient() {
                         !position.thumbnailUrl &&
                         (positionArtworkLoadingByKey[positionArtworkKey(position.marketId, position.outcome)] ?? false)
                       }
-                      onSell={(selected) => setSellState({ position: selected, amount: String(selected.shares) })}
+                      onSell={(selected) => {
+                        setSellError("");
+                        setSellOrderbook(null);
+                        setSellState({ position: selected, amount: String(selected.shares) });
+                      }}
                       position={position}
                     />
                   ))}
@@ -1424,11 +1545,17 @@ export default function PortfolioClient() {
         />
         <SellModal
           amount={sellState?.amount ?? ""}
-          error={error}
+          error={sellError}
           estimatedProceeds={estimatedSellProceeds}
-          onAmountChange={(value) => setSellState((current) => (current ? { ...current, amount: value } : current))}
+          onAmountChange={(value) => {
+            setSellError("");
+            setSellState((current) => (current ? { ...current, amount: value } : current));
+          }}
           onClose={closeSellModal}
-          onSetMax={() => setSellState((current) => (current ? { ...current, amount: String(current.position.shares) } : current))}
+          onSetMax={() => {
+            setSellError("");
+            setSellState((current) => (current ? { ...current, amount: String(current.position.shares) } : current));
+          }}
           onSubmit={() => void submitSell()}
           loadingArtwork={
             sellState
@@ -1438,6 +1565,7 @@ export default function PortfolioClient() {
           }
           open={Boolean(sellState)}
           position={sellState?.position ?? null}
+          quoteLoading={sellQuoteLoading}
           selectedBid={selectedSellBid}
           submitting={selling}
           tradeProgress={tradeProgress}
