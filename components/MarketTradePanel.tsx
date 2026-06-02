@@ -205,15 +205,8 @@ export function MarketTradePanel({
   const bodyRef = useRef<HTMLDivElement>(null);
 
   const showSuccessFeedback = useCallback((message: string) => {
-    setToast({ tone: "success", message });
     setSuccessPulse({ id: Date.now(), message });
   }, []);
-
-  useEffect(() => {
-    if (!toast || toast.tone !== "success") return undefined;
-    const timeout = window.setTimeout(() => setToast((current) => (current?.tone === "success" ? null : current)), 2800);
-    return () => window.clearTimeout(timeout);
-  }, [toast]);
 
   useEffect(() => {
     if (!successPulse) return undefined;
@@ -587,7 +580,7 @@ export function MarketTradePanel({
         }
 
         if (!runtimeConfig.realTradingEnabled) {
-          showSuccessFeedback(`${side} ${refreshedOutcome.name} validated at ${formatCents(finalPrice as number)}. Real order submission is disabled.`);
+          showSuccessFeedback("Validation completed. Real order submission is disabled.");
           return;
         }
 
@@ -610,7 +603,7 @@ export function MarketTradePanel({
         });
         const nextOrderId = extractOrderId(response);
         setOrderId(nextOrderId);
-        showSuccessFeedback(nextOrderId ? `Trade placed successfully. Order submitted: ${nextOrderId}` : `Trade placed successfully. ${side} order submitted.`);
+        showSuccessFeedback("Your order was submitted.");
       };
 
       setSubmittingSide(side);
