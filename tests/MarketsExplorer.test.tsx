@@ -67,6 +67,31 @@ const initialPage: MarketPage = {
   hasMore: false,
 };
 
+function makeMarket(index: number): TerminalMarket {
+  return {
+    ...market,
+    id: `market-${index}`,
+    conditionId: `condition-${index}`,
+    slug: `market-${index}`,
+    title: `Market ${index}`,
+    volume: 100_000 - index,
+    liquidity: 50_000 - index,
+  };
+}
+
+function createPaginatedResponse(offset: number, size = 50) {
+  const markets = Array.from({ length: 250 }, (_, index) => makeMarket(index));
+  return {
+    ...initialPage,
+    markets: markets.slice(offset, offset + size),
+    limit: size,
+    offset,
+    total: markets.length,
+    returned: Math.max(0, Math.min(size, markets.length - offset)),
+    hasMore: offset + size < markets.length,
+  };
+}
+
 describe("MarketsExplorer", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -79,13 +104,9 @@ describe("MarketsExplorer", () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       requestedUrls.push(url);
-      if (url.includes("/counts")) {
-        return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
-      }
-      if (url.includes("/prewarm")) {
-        return new Response(JSON.stringify({ started: true }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ ...initialPage, counts, countsLoading: false, source: "polymarket" }), { status: 200 });
+      const params = new URL(url, "http://localhost").searchParams;
+      const offset = Number(params.get("offset") ?? 0);
+      return new Response(JSON.stringify({ ...createPaginatedResponse(offset), counts, countsLoading: false, source: "polymarket" }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -98,16 +119,20 @@ describe("MarketsExplorer", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(
       () => {
-        const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
-        expect(lastCall).toBeDefined();
-        const params = new URL(lastCall as string, "http://localhost").searchParams;
-        expect(params.get("limit")).toBe("250");
+        const nbaCall = requestedUrls.find((url) => url.includes("/api/polymarket/markets?") && url.includes("sport=NBA"));
+        expect(nbaCall).toBeDefined();
+        const params = new URL(nbaCall as string, "http://localhost").searchParams;
+        expect(params.get("limit")).toBe("50");
         expect(params.get("offset")).toBe("0");
         expect(params.get("minVolume")).toBe("2000");
         expect(params.get("sport")).toBe("NBA");
         expect(params.get("status")).toBe("all");
         expect(params.get("sort")).toBe("liquidity");
         expect(params.has("search")).toBe(false);
+        expect(requestedUrls.some((url) => url.includes("limit=50&offset=50"))).toBe(true);
+        expect(requestedUrls.some((url) => url.includes("limit=50&offset=100"))).toBe(true);
+        expect(requestedUrls.some((url) => url.includes("limit=50&offset=150"))).toBe(true);
+        expect(requestedUrls.some((url) => url.includes("limit=50&offset=200"))).toBe(true);
       },
       { timeout: 1000 },
     );
@@ -149,7 +174,7 @@ describe("MarketsExplorer", () => {
     render(<MarketsExplorer initialPage={initialPage} source="polymarket" />);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-    fireEvent.click(screen.getByText("Champions League").closest("button") ?? screen.getByText("Champions League"));
+    fireEvent.click(screen.getByRole("button", { name: "Soccer" }));
 
     await waitFor(() => expect(requestedUrls.some((url) => url.includes("sport=Soccer"))).toBe(true));
     expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
@@ -213,14 +238,7 @@ describe("MarketsExplorer", () => {
     const pending = new Promise<void>((resolve) => {
       resolveFetch = resolve;
     });
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.includes("/counts")) {
-        return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
-      }
-      if (url.includes("/prewarm")) {
-        return new Response(JSON.stringify({ started: true }), { status: 200 });
-      }
+    const fetchMock = vi.fn(async () => {
       return pending.then(() => new Response(JSON.stringify({ ...initialPage, counts, countsLoading: false, source: "polymarket" }), { status: 200 }));
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -230,41 +248,51 @@ describe("MarketsExplorer", () => {
     expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "UFC" }));
 
-    await waitFor(() => expect(screen.getAllByText("Refreshing markets").length).toBeGreaterThan(0));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(screen.getByRole("application", { name: /1 sports market bubble map/i })).toBeInTheDocument();
-    expect(screen.queryByText("Loading sports bubbles...")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("traak-loader")).not.toBeInTheDocument();
 
     resolveFetch();
     await pending;
   });
 
-  it("keeps the ranked fetch size fixed when selecting a range slice", async () => {
+  it("loads the initial 50 first, then background pages, and shows the chip for unloaded ranges", async () => {
     const requestedUrls: string[] = [];
+    let releaseOffset50!: () => void;
+    const offset50Pending = new Promise<void>((resolve) => {
+      releaseOffset50 = resolve;
+    });
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       requestedUrls.push(url);
-      if (url.includes("/counts")) {
-        return new Response(JSON.stringify({ loading: false, counts, source: "polymarket" }), { status: 200 });
+      const params = new URL(url, "http://localhost").searchParams;
+      const offset = Number(params.get("offset") ?? 0);
+      if (offset === 50) {
+        await offset50Pending;
       }
-      if (url.includes("/prewarm")) {
-        return new Response(JSON.stringify({ started: true }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ ...initialPage, hasMore: true, counts, countsLoading: false, source: "polymarket" }), { status: 200 });
+      return new Response(JSON.stringify({ ...createPaginatedResponse(offset), counts, countsLoading: false, source: "polymarket" }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
 
-    render(<MarketsExplorer initialPage={{ ...initialPage, hasMore: true }} source="polymarket" />);
+    render(<MarketsExplorer initialPage={{ ...initialPage, markets: [], hasMore: true }} source="polymarket" />);
 
-    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "200" } });
+    await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
+    expect(requestedUrls.some((url) => url.includes("limit=50&offset=0"))).toBe(true);
 
-    await waitFor(() => {
-      const lastCall = [...requestedUrls].reverse().find((url) => url.includes("/api/polymarket/markets?"));
-      expect(lastCall).toBeDefined();
-      const params = new URL(lastCall as string, "http://localhost").searchParams;
-      expect(params.get("minVolume")).toBe("2000");
-      expect(params.get("limit")).toBe("250");
-      expect(params.get("offset")).toBe("0");
-    });
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "150" } });
+    expect(screen.getByTestId("traak-loader")).toBeInTheDocument();
+    expect(screen.getByText("Loading 151-200 markets")).toBeInTheDocument();
+
+    releaseOffset50();
+
+    await waitFor(() => expect(requestedUrls.some((url) => url.includes("limit=50&offset=100"))).toBe(true));
+    await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "50" } });
+    await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
+
+    fireEvent.change(screen.getByLabelText("Market range"), { target: { value: "100" } });
+    await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
   });
 
   it("manual refresh reloads markets and recalculates favored outcome", async () => {

@@ -23,7 +23,9 @@ const rangeOptions = [
   { label: "151-200", start: 150, end: 200 },
   { label: "201-250", start: 200, end: 250 },
 ] as const;
-const maxMarketFetchLimit = rangeOptions[rangeOptions.length - 1].end;
+const marketPageSize = 50;
+const priorityBackgroundOffsets = [50, 100] as const;
+const secondaryBackgroundOffsets = [150, 200] as const;
 
 export { hasUsefulFavoredPrice };
 
@@ -61,6 +63,23 @@ function buildMarketsUrl(params: {
   });
   if (params.sport !== "All") searchParams.set("sport", params.sport);
   return `/api/polymarket/markets?${searchParams.toString()}`;
+}
+
+function mergeMarketsById(current: TerminalMarket[], incoming: TerminalMarket[]) {
+  const merged = new Map<string, TerminalMarket>();
+  for (const market of current) merged.set(market.id, market);
+  for (const market of incoming) merged.set(market.id, market);
+  return [...merged.values()];
+}
+
+function contiguousLoadedEnd(loadedOffsets: number[]) {
+  const uniqueOffsets = new Set(loadedOffsets);
+  let end = 0;
+  for (const option of rangeOptions) {
+    if (!uniqueOffsets.has(option.start)) break;
+    end = option.end;
+  }
+  return end;
 }
 
 function matchesMarketQuery(market: TerminalMarket, query: string) {
@@ -105,6 +124,7 @@ export function MarketsExplorer({
   const [selectedSearchMarket, setSelectedSearchMarket] = useState<MarketBubbleNode | null>(null);
   const [latestSource, setLatestSource] = useState(source);
   const [isLoading, setIsLoading] = useState(initialPage.markets.length === 0);
+  const [loadedOffsets, setLoadedOffsets] = useState<number[]>(initialPage.markets.length > 0 ? [0] : []);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const dashboardLoadStartedAt = useRef(0);
@@ -116,11 +136,6 @@ export function MarketsExplorer({
     setQuery("");
     setSelectedSearchMarket(null);
   }, []);
-  const liveRequestUrl = useMemo(
-    () => buildMarketsUrl({ offset: 0, limit: maxMarketFetchLimit, sort, sport, status, minVolume }),
-    [minVolume, sort, sport, status],
-  );
-
   useEffect(() => {
     if (dashboardLoadStartedAt.current === 0) {
       dashboardLoadStartedAt.current = Date.now();
@@ -136,28 +151,48 @@ export function MarketsExplorer({
 
     const controller = new AbortController();
     const requestId = ++requestIdRef.current;
+    let mergedMarkets: TerminalMarket[] = [];
+    let sawSuccessfulPage = false;
+
+    const fetchPage = async (offset: number) => {
+      const response = await fetch(
+        buildMarketsUrl({ offset, limit: marketPageSize, sort, sport, status, minVolume }),
+        { signal: controller.signal },
+      );
+      const nextPage = await readMarketsResponse(response);
+      if (requestId !== requestIdRef.current || controller.signal.aborted) return null;
+
+      sawSuccessfulPage = true;
+      mergedMarkets = mergeMarketsById(mergedMarkets, nextPage.markets);
+      setMarkets(mergedMarkets);
+      marketStore.setMarketSnapshots(mergedMarkets, { replace: true });
+      setLatestSource(nextPage.source);
+      setLoadedOffsets((current) => (current.includes(offset) ? current : [...current, offset].sort((left, right) => left - right)));
+      return nextPage;
+    };
+
     queueMicrotask(() => {
       if (controller.signal.aborted || requestId !== requestIdRef.current) return;
       setIsLoading(true);
       setError(null);
     });
-    fetch(liveRequestUrl, { signal: controller.signal })
-      .then(readMarketsResponse)
-      .then((nextPage) => {
-      if (requestId !== requestIdRef.current) return;
-      setMarkets(nextPage.markets);
-      marketStore.setMarketSnapshots(nextPage.markets, { replace: true });
-      setLatestSource(nextPage.source);
-      if (process.env.NODE_ENV !== "production" && (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1")) {
-        console.info("[Traak] dashboard market fetch", {
-          durationMs: Date.now() - dashboardLoadStartedAt.current,
-          sport,
-          returned: nextPage.returned,
-          total: nextPage.total,
-          source: nextPage.source,
-        });
-      }
-    })
+
+    fetchPage(0)
+      .then(async (firstPage) => {
+        if (!firstPage || requestId !== requestIdRef.current || controller.signal.aborted) return;
+        if (process.env.NODE_ENV !== "production" && (process.env.LOGO_DEBUG === "true" || process.env.LOGO_DEBUG === "1")) {
+          console.info("[Traak] dashboard market fetch", {
+            durationMs: Date.now() - dashboardLoadStartedAt.current,
+            sport,
+            returned: firstPage.returned,
+            total: firstPage.total,
+            source: firstPage.source,
+          });
+        }
+
+        await Promise.all(priorityBackgroundOffsets.map((offset) => fetchPage(offset).catch(() => null)));
+        await Promise.all(secondaryBackgroundOffsets.map((offset) => fetchPage(offset).catch(() => null)));
+      })
       .catch((error) => {
         if ((error as Error).name !== "AbortError") {
           console.error(error);
@@ -165,11 +200,17 @@ export function MarketsExplorer({
         }
       })
       .finally(() => {
-        if (requestId === requestIdRef.current) setIsLoading(false);
+        if (requestId === requestIdRef.current) {
+          if (!sawSuccessfulPage) {
+            setMarkets([]);
+            marketStore.setMarketSnapshots([], { replace: true });
+          }
+          setIsLoading(false);
+        }
       });
 
     return () => controller.abort();
-  }, [liveRequestUrl, refreshNonce, sport]);
+  }, [minVolume, refreshNonce, sort, sport, status]);
 
   useEffect(() => {
     if (initialLoadLoggedRef.current) return;
@@ -188,8 +229,10 @@ export function MarketsExplorer({
   const isInitialLoading = isLoading && markets.length === 0;
   const isRefreshing = isLoading && markets.length > 0;
   const selectedRange = rangeOptions.find((option) => option.start === rangeStart) ?? rangeOptions[0];
+  const loadedThrough = useMemo(() => contiguousLoadedEnd(loadedOffsets), [loadedOffsets]);
   const rankedMarkets = useMemo(() => rankHighValueMarkets(markets, minVolume), [markets, minVolume]);
-  const visibleMarkets = rankedMarkets.slice(selectedRange.start, selectedRange.end);
+  const isSelectedRangePending = !query.trim() && isLoading && selectedRange.end > loadedThrough;
+  const visibleMarkets = isSelectedRangePending ? [] : rankedMarkets.slice(selectedRange.start, selectedRange.end);
   const searchResults = useMemo(() => rankedMarkets.filter((market) => matchesMarketQuery(market, query)).slice(0, 12), [query, rankedMarkets]);
   const categoryCta = sport === "All" ? "Explore markets" : `Explore ${sport}`;
 
@@ -335,12 +378,16 @@ export function MarketsExplorer({
         {isRefreshing ? (
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-cyan-400/20 bg-cyan-400/8 px-3 py-1.5 text-xs font-semibold text-cyan-700 dark:text-cyan-100">
             <RefreshCw className={`h-3.5 w-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            <span>Updating {sport === "All" ? "markets" : `${sport} markets`}</span>
+            <span>
+              {isSelectedRangePending
+                ? `Loading ${selectedRange.label} markets`
+                : `Updating ${sport === "All" ? "markets" : `${sport} markets`}`}
+            </span>
           </div>
         ) : null}
 
         <div className="traak-market-stage-shell rounded-[1.75rem] border border-[var(--border)] bg-[var(--surface)] p-3 shadow-[0_24px_90px_rgba(15,23,42,0.12)]">
-          <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading} isRefreshing={isRefreshing} markets={visibleMarkets} />
+          <MarketBubbleMap activeSport={sport} isLoading={isInitialLoading || isSelectedRangePending} isRefreshing={isRefreshing && !isSelectedRangePending} markets={visibleMarkets} />
         </div>
 
       </div>

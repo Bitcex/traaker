@@ -221,8 +221,8 @@ describe("MarketBubbleMap", () => {
     render(<MarketBubbleMap isLoading markets={[]} />);
 
     expect(screen.getByTestId("traak-loader")).toBeInTheDocument();
-    expect(screen.getByLabelText("Loading Traak markets")).toBeInTheDocument();
-    expect(screen.getByText("Refreshing markets")).toBeInTheDocument();
+    expect(screen.getByLabelText("Loading markets")).toBeInTheDocument();
+    expect(screen.getByText("Loading markets")).toBeInTheDocument();
     expect(screen.queryByText("Loading snapshot")).not.toBeInTheDocument();
     expect(screen.queryByText("Preparing the board")).not.toBeInTheDocument();
   });

@@ -31,7 +31,7 @@ function makeMarket(index: number): TerminalMarket {
   };
 }
 
-const markets = Array.from({ length: 150 }, (_, index) => makeMarket(index));
+const markets = Array.from({ length: 250 }, (_, index) => makeMarket(index));
 const counts = {
   eventPagesFetched: 1,
   eventsFetched: 1,
@@ -97,13 +97,12 @@ describe("DashboardPage", () => {
   it("renders the bubble map", async () => {
     render(await DashboardPage());
     expect(screen.getByPlaceholderText("Search markets...")).toBeInTheDocument();
-    expect(screen.getByText("Snapshot")).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: /trading terminal/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/polymarket sports/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/minimum volume/i, { selector: "p" })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByRole("application", { name: /50 sports market bubble map/i })).toBeInTheDocument());
     expect(screen.getByLabelText("Market range")).toHaveValue("0");
-    expect(vi.mocked(fetch)).toHaveBeenCalledWith(expect.stringContaining("limit=250"), expect.any(Object));
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(expect.stringContaining("limit=50&offset=0"), expect.any(Object));
   });
 
   it("does not render every discovered market on first paint", async () => {
