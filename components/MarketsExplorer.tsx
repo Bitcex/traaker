@@ -104,7 +104,7 @@ export function MarketsExplorer({
   const [markets, setMarkets] = useState<TerminalMarket[]>(initialPage.markets);
   const [selectedSearchMarket, setSelectedSearchMarket] = useState<MarketBubbleNode | null>(null);
   const [latestSource, setLatestSource] = useState(source);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(initialPage.markets.length === 0);
   const [refreshNonce, setRefreshNonce] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const dashboardLoadStartedAt = useRef(0);
