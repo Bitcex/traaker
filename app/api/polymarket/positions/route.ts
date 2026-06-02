@@ -20,6 +20,13 @@ type RawPosition = {
   title?: string;
   outcome?: string;
   negativeRisk?: boolean;
+  thumbnailUrl?: string;
+  image?: string;
+  imageUrl?: string;
+  logoUrl?: string;
+  icon?: string;
+  marketImage?: string;
+  outcomeLogoUrl?: string;
 };
 
 function asNumber(value: unknown): number | null {
@@ -76,6 +83,22 @@ export async function GET(request: NextRequest) {
           currentValue: asNumber(position.currentValue),
           curPrice: asNumber(position.curPrice),
           negativeRisk: Boolean(position.negativeRisk),
+          thumbnailUrl:
+            typeof position.thumbnailUrl === "string"
+              ? position.thumbnailUrl
+              : typeof position.outcomeLogoUrl === "string"
+                ? position.outcomeLogoUrl
+                : typeof position.image === "string"
+                  ? position.image
+                  : typeof position.imageUrl === "string"
+                    ? position.imageUrl
+                    : typeof position.logoUrl === "string"
+                      ? position.logoUrl
+                      : typeof position.marketImage === "string"
+                        ? position.marketImage
+                        : typeof position.icon === "string"
+                          ? position.icon
+                          : null,
         };
       })
       .filter((position) => position.shares > 0);

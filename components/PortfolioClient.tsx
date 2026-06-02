@@ -43,6 +43,7 @@ type LivePosition = {
   curPrice: number | null;
   bestBid: number | null;
   negativeRisk: boolean;
+  thumbnailUrl?: string | null;
 };
 
 type PositionsResponse = {
@@ -126,6 +127,7 @@ const toLivePortfolioPosition = (position: LivePosition, updatedAt: string): Enr
     negativeRisk: position.negativeRisk,
     bestBid: position.bestBid ?? null,
     curPrice: position.curPrice ?? null,
+    thumbnailUrl: position.thumbnailUrl ?? null,
   }) as EnrichedOpenPosition;
 
 const toUsd = (value: number | null | undefined) => {
@@ -216,6 +218,16 @@ function formatDateTime(value: string | undefined) {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatUtcTime(value: number | null) {
+  if (value === null) return "Awaiting refresh";
+  return `Updated ${new Date(value).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+    timeZone: "UTC",
+  })} UTC`;
 }
 
 function fallbackPositionInitials(title: string) {
@@ -841,11 +853,15 @@ export default function PortfolioClient() {
         marketId: position.conditionId || position.tokenId,
         marketTitle: position.title,
         outcome: position.outcome,
+        tokenId: position.tokenId,
+        feedArtwork: position.thumbnailUrl ?? null,
       })),
       ...derivedPositions.map((position) => ({
         marketId: position.marketId,
         marketTitle: position.marketTitle,
         outcome: position.outcome,
+        tokenId: position.latestFillId ?? null,
+        feedArtwork: null,
       })),
     ].filter((position) => Boolean(position.marketId));
     const uniqueKeys = new Map<string, { marketId: string; marketTitle: string; outcome: string }>();
@@ -871,10 +887,41 @@ export default function PortfolioClient() {
       };
     }
 
-    setPositionArtworkLoadingByKey(Object.fromEntries([...uniqueKeys.keys()].map((key) => [key, true])));
+    setPositionArtworkLoadingByKey(
+      Object.fromEntries(
+        [...uniqueKeys.entries()].map(([key, value]) => {
+          const sourcePosition = positionsForArtwork.find(
+            (position) => position.marketId === value.marketId && position.outcome === value.outcome,
+          );
+          return [key, !sourcePosition?.feedArtwork];
+        }),
+      ),
+    );
+
+    setPositionArtworkByKey(
+      Object.fromEntries(
+        positionsForArtwork
+          .filter((position) => Boolean(position.feedArtwork) && Boolean(position.marketId))
+          .map((position) => [positionArtworkKey(position.marketId, position.outcome), position.feedArtwork]),
+      ),
+    );
 
     void Promise.all(
       [...uniqueKeys.entries()].map(async ([key, value]) => {
+        const sourcePosition = positionsForArtwork.find(
+          (position) => position.marketId === value.marketId && position.outcome === value.outcome,
+        );
+        if (sourcePosition?.feedArtwork) {
+          portfolioDebugLog("position market lookup", {
+            marketId: value.marketId,
+            tokenId: sourcePosition.tokenId,
+            marketFound: true,
+            chosenImageUrl: sourcePosition.feedArtwork,
+            initialsFallbackUsed: false,
+            fallbackReason: "feed artwork available",
+          });
+          return [key, sourcePosition.feedArtwork] as const;
+        }
         try {
           const response = await fetch(`/api/polymarket/markets/${encodeURIComponent(value.marketId)}`, {
             cache: "no-store",
@@ -888,17 +935,21 @@ export default function PortfolioClient() {
           );
           portfolioDebugLog("position market lookup", {
             marketId: value.marketId,
+            tokenId: sourcePosition?.tokenId ?? null,
             marketFound: Boolean(market),
             chosenImageUrl: artwork,
             initialsFallbackUsed: !artwork,
+            fallbackReason: artwork ? null : market ? "market artwork path returned no image" : "market object missing",
           });
           return [key, artwork] as const;
         } catch {
           portfolioDebugLog("position market lookup", {
             marketId: value.marketId,
+            tokenId: sourcePosition?.tokenId ?? null,
             marketFound: false,
             chosenImageUrl: null,
             initialsFallbackUsed: true,
+            fallbackReason: "market lookup failed",
           });
           return [key, null] as const;
         }
@@ -929,7 +980,7 @@ export default function PortfolioClient() {
         const artworkKey = positionArtworkKey(value.marketId, value.outcome);
         return {
           ...value,
-          thumbnailUrl: positionArtworkByKey[artworkKey] ?? null,
+          thumbnailUrl: value.thumbnailUrl ?? positionArtworkByKey[artworkKey] ?? null,
           currentValue,
           unrealizedPnl,
         };
@@ -1258,7 +1309,10 @@ export default function PortfolioClient() {
                   {openPositions.map((position) => (
                     <PositionCard
                       key={position.positionKey}
-                      loadingArtwork={positionArtworkLoadingByKey[positionArtworkKey(position.marketId, position.outcome)] ?? false}
+                      loadingArtwork={
+                        !position.thumbnailUrl &&
+                        (positionArtworkLoadingByKey[positionArtworkKey(position.marketId, position.outcome)] ?? false)
+                      }
                       onSell={(selected) => setSellState({ position: selected, amount: String(selected.shares) })}
                       position={position}
                     />
@@ -1315,7 +1369,7 @@ export default function PortfolioClient() {
                     ) : (
                       <div className="flex items-center gap-2 text-sm text-slate-400">
                         <Clock3 className="h-4 w-4" />
-                        <span>{lastUpdatedAt ? `Updated ${new Date(lastUpdatedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}` : "Awaiting refresh"}</span>
+                        <span>{formatUtcTime(lastUpdatedAt)}</span>
                       </div>
                     )}
                   </div>
@@ -1324,7 +1378,7 @@ export default function PortfolioClient() {
                       ? "Fetching the live trading wallet balance."
                       : walletBalanceRaw === null
                         ? walletBalanceError || "Connect and refresh to load the live wallet balance."
-                      : "This is the live USDC balance available for withdrawals and trading."}
+                        : null}
                   </p>
                 </div>
               </CardContent>
@@ -1352,7 +1406,12 @@ export default function PortfolioClient() {
           onAmountChange={(value) => setSellState((current) => (current ? { ...current, amount: value } : current))}
           onClose={closeSellModal}
           onSubmit={() => void submitSell()}
-          loadingArtwork={sellState ? positionArtworkLoadingByKey[positionArtworkKey(sellState.position.marketId, sellState.position.outcome)] ?? false : false}
+          loadingArtwork={
+            sellState
+              ? !sellState.position.thumbnailUrl &&
+                (positionArtworkLoadingByKey[positionArtworkKey(sellState.position.marketId, sellState.position.outcome)] ?? false)
+              : false
+          }
           open={Boolean(sellState)}
           position={sellState?.position ?? null}
           selectedBid={selectedSellBid}
