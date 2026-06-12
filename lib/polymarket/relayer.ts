@@ -19,7 +19,7 @@ import {
   isProxyContractConfigValid,
   isSafeContractConfigValid,
 } from "@polymarket/builder-relayer-client/dist/config";
-import { encodeFunctionData, erc1155Abi as viemErc1155Abi, erc20Abi } from "viem";
+import { encodeFunctionData, erc1155Abi as viemErc1155Abi, erc20Abi, maxUint256 } from "viem";
 import { zeroAddress } from "viem";
 import { getContractConfig } from "@polymarket/clob-client-v2";
 import type { PublicClient, WalletClient } from "viem";
@@ -384,7 +384,7 @@ export const ensureDepositWalletApprovals = async ({
   const data = encodeFunctionData({
     abi: erc20Abi,
     functionName: "approve",
-    args: [spender as `0x${string}`, amount],
+    args: [spender as `0x${string}`, maxUint256],
   });
   await executeDepositWalletBatch({
     client,
