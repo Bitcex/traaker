@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { OrderType, placeLimitOrder, placeMarketOrder, Side, validateTrade, isDepositWalletRequiredError } from "@/lib/polymarket/orders";
+import { normalizeTradeError } from "@/lib/polymarket/tradeErrors";
 import { getPositions } from "@/lib/polymarket/portfolio";
 import { ensureTradingReady, markDepositWalletRequired, type TradeProgress } from "@/lib/polymarket/tradeSetup";
 import type { PortfolioBalanceState } from "@/lib/polymarket/types";
@@ -223,12 +224,12 @@ export function TradeTicket({
           return;
         } catch (retryError) {
           setStatus("error");
-          setMessage(retryError instanceof Error ? `Polymarket rejected the order: ${retryError.message}` : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.");
+          setMessage(normalizeTradeError(retryError));
           return;
         }
       }
       setStatus("error");
-      setMessage(error instanceof Error ? `Polymarket rejected the order: ${error.message}` : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.");
+      setMessage(normalizeTradeError(error));
     } finally {
       setTradeProgress("idle");
     }

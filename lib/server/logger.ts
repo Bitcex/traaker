@@ -18,3 +18,13 @@ export function logInfo(scope: string, message: string, meta?: Record<string, un
     timestamp: new Date().toISOString(),
   }));
 }
+
+export function logWarn(scope: string, message: string, meta?: Record<string, unknown>) {
+  console.warn(JSON.stringify({
+    level: "warn",
+    scope,
+    message,
+    ...meta,
+    timestamp: new Date().toISOString(),
+  }));
+}

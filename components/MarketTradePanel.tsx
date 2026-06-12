@@ -10,6 +10,7 @@ import type { EnrichedMarket } from "@/lib/sports/enrichmentTypes";
 import { categoryIcon, categoryIconSrc } from "@/lib/markets/category";
 import { createSignerClient, SignatureTypeV2 } from "@/lib/polymarket/client";
 import { resolveMarketOutcomeLogoUrl, sharedMarketOutcomeIconUrl } from "@/lib/polymarket/marketDisplay";
+import { normalizeTradeError } from "@/lib/polymarket/tradeErrors";
 import { getTradeDisabledReason } from "@/lib/polymarket/readiness";
 import { isDepositWalletRequiredError, placeMarketOrder, Side, validateTrade } from "@/lib/polymarket/orders";
 import {
@@ -101,10 +102,6 @@ function extractOrderId(response: unknown) {
   if (!response || typeof response !== "object") return "";
   const record = response as Record<string, unknown>;
   return String(record.orderID ?? record.orderId ?? record.order_id ?? record.hash ?? record.id ?? "");
-}
-
-function userFacingTradeError(message: string) {
-  return message;
 }
 
 function selectedOutcomeFromMarket(market: MarketBubbleNode, preferred?: string | null) {
@@ -576,7 +573,7 @@ export function MarketTradePanel({
         });
 
         if (!validation.ok) {
-          throw new Error(userFacingTradeError(validation.errors[0] ?? "Trade validation failed."));
+          throw new Error(validation.errors[0] ?? "Trade validation failed.");
         }
 
         if (!runtimeConfig.realTradingEnabled) {
@@ -617,7 +614,7 @@ export function MarketTradePanel({
         if (!isDepositWalletRequiredError(error) || !walletAddress) {
           setToast({
             tone: "error",
-            message: error instanceof Error ? error.message : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.",
+            message: normalizeTradeError(error),
           });
           return;
         }
@@ -627,7 +624,7 @@ export function MarketTradePanel({
         } catch (retryError) {
           setToast({
             tone: "error",
-            message: retryError instanceof Error ? retryError.message : "Polymarket rejected the order. Check wallet setup, balance, allowances, and market liquidity.",
+            message: normalizeTradeError(retryError),
           });
         }
       } finally {
@@ -641,8 +638,8 @@ export function MarketTradePanel({
   const actionButtons = useMemo(
     () =>
       ([
-        { side: "Buy" as const, price: buyPrice, className: "bg-[linear-gradient(135deg,#34d399_0%,#00c985_55%,#11b981_100%)] text-slate-950 hover:brightness-110" },
-        { side: "Sell" as const, price: sellPrice, className: "bg-[linear-gradient(135deg,#fb7185_0%,#ff4d7a_52%,#f43f5e_100%)] text-slate-950 hover:brightness-110" },
+        { side: "Buy" as const, price: buyPrice, className: "border border-sky-200/35 bg-[linear-gradient(135deg,rgba(56,189,248,0.98)_0%,rgba(14,165,233,0.95)_55%,rgba(2,132,199,0.94)_100%)] text-sky-950 shadow-[0_18px_42px_rgba(14,165,233,0.28)] hover:brightness-105" },
+        { side: "Sell" as const, price: sellPrice, className: "border border-sky-300/20 bg-[linear-gradient(135deg,rgba(15,23,42,0.96)_0%,rgba(12,74,110,0.92)_100%)] text-sky-50 shadow-[0_18px_42px_rgba(8,47,73,0.28)] hover:border-sky-200/35 hover:bg-[linear-gradient(135deg,rgba(15,23,42,0.98)_0%,rgba(14,116,144,0.96)_100%)]" },
       ]).map((action) => {
         const sideExecutionPrice = action.side === "Buy" ? maxBuyExecutionPrice : minSellExecutionPrice;
         const hasLiquidity = Number.isFinite(action.price) && Number.isFinite(sideExecutionPrice);
@@ -977,20 +974,6 @@ export function MarketTradePanel({
           </div>
         ) : null}
 
-        {toast ? (
-          <div
-            className={`mt-4 flex gap-2 rounded-lg border p-3 text-sm ${
-              toast.tone === "success"
-              ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-100"
-              : toast.tone === "error"
-                ? "border-rose-400/30 bg-rose-400/10 text-rose-100"
-                : "border-cyan-400/30 bg-cyan-400/10 text-cyan-100"
-            }`}
-          >
-            {toast.tone === "success" ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />}
-            <span className="break-words">{toast.message}</span>
-          </div>
-        ) : null}
         {enrichmentError ? <p className="mt-3 text-xs text-[var(--muted)]">{enrichmentError}</p> : null}
       </div>
 
@@ -1015,6 +998,19 @@ export function MarketTradePanel({
           </div>
         ) : null}
         {tradeDisabledReason ? <p className="mt-2 text-[11px] leading-4 text-amber-600 dark:text-amber-200">{tradeDisabledReason}</p> : null}
+        {toast?.tone === "error" ? (
+          <div
+            aria-live="polite"
+            className="mt-3 flex gap-3 rounded-xl border border-sky-300/20 bg-[linear-gradient(180deg,rgba(14,165,233,0.12),rgba(15,23,42,0.78))] px-3 py-3 text-sm text-sky-50 shadow-[0_14px_34px_rgba(8,47,73,0.2)]"
+            role="alert"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-sky-300" />
+            <div className="min-w-0">
+              <p className="font-semibold text-sky-100">Trade unavailable</p>
+              <p className="mt-0.5 break-words text-sky-50/90">{toast.message}</p>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {successPulse ? (
@@ -1044,16 +1040,6 @@ export function MarketTradePanel({
               </div>
             </div>
           </div>
-        </div>
-      ) : null}
-
-      {toast ? (
-        <div
-          className={`fixed bottom-4 right-4 z-50 max-w-sm rounded-lg border p-3 text-sm shadow-2xl ${
-            toast.tone === "success" ? "border-emerald-400/30 bg-emerald-950 text-emerald-100" : "border-rose-400/30 bg-rose-950 text-rose-100"
-          }`}
-        >
-          {toast.message}
         </div>
       ) : null}
     </aside>

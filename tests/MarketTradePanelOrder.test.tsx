@@ -102,6 +102,8 @@ describe("MarketTradePanel orders", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    mocks.account.isConnected = true;
+    mocks.account.chainId = 137;
   });
 
   it("submits the selected outcome's real CLOB tokenID", async () => {
@@ -299,5 +301,33 @@ describe("MarketTradePanel orders", () => {
       }),
     );
     expect(mocks.placeMarketOrder.mock.calls[0]?.[1].amount).toBeCloseTo(6.8, 5);
+  });
+
+  it("uses the sky-blue trade button theme", async () => {
+    mocks.resolveTradingWalletContext.mockResolvedValue(mocks.walletContext);
+    mocks.ensureTradingReady.mockResolvedValue(mocks.tradingSetup);
+    mocks.createSignerClient.mockResolvedValue({ client: "signed" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/api/polymarket/config"))
+          return new Response(JSON.stringify({ ok: true, realTradingEnabled: true, builderReady: true, gaslessReady: true, clobReady: true, missingSetupReason: null }), { status: 200 });
+        if (url.includes("/api/polymarket/account"))
+          return new Response(JSON.stringify({ ok: true, balance: { balance: "100000000", allowances: { exchange: "1", conditional: "1" } } }), { status: 200 });
+        return new Response(JSON.stringify({}), { status: 200 });
+      }),
+    );
+
+    render(<MarketTradePanel market={market} onClose={vi.fn()} />);
+
+    await waitFor(() => expect(fetch).toHaveBeenCalledWith("/api/polymarket/config", { cache: "no-store" }));
+    const buyButton = screen.getByRole("button", { name: /buy psg/i });
+    const sellButton = screen.getByRole("button", { name: /sell psg/i });
+
+    expect(buyButton.className).toContain("border-sky-200/35");
+    expect(buyButton.className).not.toContain("#34d399");
+    expect(sellButton.className).toContain("border-sky-300/20");
+    expect(sellButton.className).not.toContain("#fb7185");
   });
 });
