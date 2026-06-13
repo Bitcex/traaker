@@ -89,3 +89,10 @@ model WalletSync {
   @@unique([ownerId, connectedWalletAddress])
   @@index([ownerId])
 }
+
+model RelayUsageDaily {
+  date      String   @id
+  used      Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}

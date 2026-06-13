@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { BuilderSigner } from "@polymarket/builder-signing-sdk";
 import { requireBuilderRelayerAuth } from "@/lib/server/polymarketRuntimeConfig";
+import { incrementRelayUsageForToday } from "@/lib/server/relayUsage";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -170,6 +171,12 @@ export async function POST(request: NextRequest) {
         },
         { status: upstream.status, headers: { "Cache-Control": "no-store" } },
       );
+    }
+
+    try {
+      await incrementRelayUsageForToday();
+    } catch (error) {
+      console.error("[relay-usage][increment-failed]", error);
     }
 
     return NextResponse.json(data ?? { ok: true }, { headers: { "Cache-Control": "no-store" } });
