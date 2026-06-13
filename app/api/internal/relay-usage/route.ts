@@ -39,22 +39,33 @@ export async function GET(request: NextRequest) {
 
   const now = new Date();
   const date = now.toISOString().slice(0, 10);
-  const today = await getRelayUsageForDay(date);
-  const response = {
-    ...today,
-    timestamp: now.toISOString(),
-  };
+  try {
+    const today = await getRelayUsageForDay(date);
+    const response = {
+      ...today,
+      timestamp: now.toISOString(),
+    };
 
-  if (days === 1) {
-    return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
+    if (days === 1) {
+      return NextResponse.json(response, { headers: { "Cache-Control": "no-store" } });
+    }
+
+    const history = await getRelayUsageHistory(days, now);
+    return NextResponse.json(
+      {
+        ...response,
+        history,
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error) {
+    console.error("[relay-usage][read-failed]", {
+      date,
+      days,
+      error,
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return NextResponse.json({ error: "Relay usage monitoring failed." }, { status: 500, headers: { "Cache-Control": "no-store" } });
   }
-
-  const history = await getRelayUsageHistory(days, now);
-  return NextResponse.json(
-    {
-      ...response,
-      history,
-    },
-    { headers: { "Cache-Control": "no-store" } },
-  );
 }
